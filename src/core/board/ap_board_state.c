@@ -789,6 +789,36 @@ static void hash_ring_window(ap_hash_t *st, const ap_ring_ctl_window_t *w) {
    * returns, so two cards holding the same buffer mid-read are in different
    * states -- the same reason the 8254's LSB/MSB cursors are here. */
   ap_hash_u16(st, w->read_ahead);
+  /* **And every field the card reads back to decide what it does next**,
+   * which the hash had left out: the two lanes each status register returns
+   * (`xmit_status`/`command_402_status`, `rcv_status`/`command_404_status`),
+   * the byte-merge inputs (`byte_latch`, `command_400`, `last_write_402`,
+   * `last_write_404`) and the data port's latches, the block move's source,
+   * `ten`'s level, the operation flags a completion and an acknowledge turn
+   * on, the relay and loopback state, and the self-test loop's two latches.
+   * Found by listing each field's reads against this function: two machines
+   * holding a deferred transmit and an idle card hashed alike. What stays out
+   * is report-only -- the command logs, the censuses and the first-frame
+   * captures -- and `in_byte_write`, which is only ever true inside one write. */
+  ap_hash_u16(st, w->pointer_base);
+  ap_hash_u8(st, w->byte_latch);
+  ap_hash_u16(st, w->command_400);
+  ap_hash_u16(st, w->last_write_402);
+  ap_hash_u16(st, w->last_write_404);
+  ap_hash_u16(st, w->command_402_status);
+  hash_bool(st, w->xmit_enabled);
+  ap_hash_u16(st, w->xmit_status);
+  ap_hash_u16(st, w->rcv_status);
+  ap_hash_u16(st, w->command_404_status);
+  hash_bool(st, w->operation_pending);
+  hash_bool(st, w->operation_on_wire);
+  hash_bool(st, w->loopback_enabled);
+  hash_bool(st, w->completion_deferred);
+  hash_bool(st, w->connected);
+  hash_bool(st, w->xmit_intend_to_copy);
+  hash_bool(st, w->xmit_packet);
+  ap_hash_u16(st, w->port_latch);
+  ap_hash_u16(st, w->port_write_high);
   for (unsigned t = 0; t < 2u; t++) {
     const ap_i8254_t *pit = t == 0u ? &w->timer_a : &w->timer_b;
     for (unsigned i = 0; i < AP_I8254_COUNTERS; i++) {
@@ -830,6 +860,14 @@ void ap_board_hash_ring(ap_hash_t *st, const ap_ring_ctl_t *ring) {
   hash_bool(st, ring->present);
   hash_ring_window(st, &ring->a1);
   hash_ring_window(st, &ring->a2);
+  /* The controller's own state beside its windows: the node ID the ID window
+   * answers and the station's address comes from, and the two edges a poll
+   * turns on -- whether the last transmit's acknowledge has been read back, and
+   * how many copied frames have been deposited. Without them a card about to
+   * deposit a frame and one that already has hashed alike. */
+  ap_hash_u32(st, ring->node_id);
+  hash_bool(st, ring->tx_ack_seen);
+  ap_hash_u64(st, ring->rx_copied_seen);
   /* The dual-ported RAM in full. It is the card's memory and the frames pass
    * through it, so a run that moved different bytes is a different run -- the
    * same argument the frame buffers get. */

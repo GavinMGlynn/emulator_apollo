@@ -1413,8 +1413,10 @@ thank-yous each way; ring hash `F9FAA93BDDA9156E`. `FINDINGS.md` C294.*
 **Two DN3500s running SR10.4 now see each other over the token ring with
 `/com/lcnode`, and every frame one sends the other is delivered to its
 operating system.** Remote file access and the distributed single-level store
-have not been tried; `RCV_STAT` bits 2:0 are not driven (`RING.md` 145h); and the
-ring window's operation flags are not in the state hash.
+have not been tried; `RCV_STAT` bits 2:0 are not driven (`RING.md` 145h). *The
+ring window's operation flags are now hashed, with every other field the card
+reads back (`FINDINGS.md` C295); this said "and the ring window's operation flags
+are not in the state hash".*
 
 **Found by reading the guest.** The driver's receive copy compares the lengths it
 derives from the receive 8254s with the lengths in the frame's own software
@@ -6093,6 +6095,19 @@ are digested on a DN3500 with no ring card, all of them zero. *Measured rather
 than argued*: the same tree with only those four `hash_bool` lines removed gives
 `7048E8ED74D015CF` at the same 350,000,000 instructions and clocks. See "Two
 booted nodes answer `lcnode`".
+
+**The reference is `73ABDD5E2E7CD2E2` as of the ring card's control state being
+hashed, 2026-09-15**, at **1,834,623,621 clocks**, coverage again. The ring
+window's live fields -- the status lanes a guest read returns, `ten`'s level,
+the operation flags, the byte-merge and data-port latches, the relay state --
+and the controller's `node_id`, `tx_ack_seen` and `rx_copied_seen` were read
+back by the card and left out of the hash; they are digested now, on every
+board. The change is to `ap_board_state.c` alone, which cannot alter execution;
+`ctest` and the ring ROM self-test are unchanged. **The DS5500 reference moves
+with it**, to `3B8111B6466415A8` at the same 4,456,406 instructions and
+27,925,641 clocks, and it had already been stale since the `[8254]` walk: a tree
+hashing the ring as it was before both changes reproduces `386D6B4E902E34A1`
+exactly. `FINDINGS.md` C295.
 
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it

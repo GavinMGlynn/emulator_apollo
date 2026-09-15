@@ -26,11 +26,18 @@
 # ## The reference
 #
 #     executed     4456406 instruction(s)
-#     state hash   386D6B4E902E34A1
+#     state hash   3B8111B6466415A8
 #     final PC     00002926 (boot PROM)
 #     clocks       27925641
 #
-# As of 2026-09-15, after the 68040 caches began carrying fetches and operands.
+# As of 2026-09-15, after the ring controller's state was hashed whole. *It was
+# `386D6B4E902E34A1`, set after the 68040 caches began carrying fetches and
+# operands* -- and it moved twice by coverage alone, at the same instructions and
+# clocks: `ap_board_hash_ring` runs for every board, fitted or not, so the four
+# 8254 fields the `[8254]` walk added (`2c688a7f`, which nobody re-ran this
+# after) and the ring window's live fields added next were digested on a DS5500
+# with no ring card. Proved rather than argued: a tree hashing the ring as it was
+# before both reproduces `386D6B4E902E34A1` exactly.
 # *It was `C3F77989268973A3` at 8,592,258 instructions, reproduced across two
 # runs on 2026-09-12* -- and stale from 2026-09-14, when §11.6 stage 1 priced
 # the PROM's poll loop and halved the count in the same clocks, because nothing

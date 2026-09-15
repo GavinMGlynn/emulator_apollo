@@ -4467,7 +4467,9 @@ discipline throughout.
   boots read the PM-flagged hour as up to 140 hours. Three volume stamps
   matched to the minute. Identity reference now `7048E8ED74D015CF`
   -- *re-baselined 2026-09-15 to **`12CFDFC6C64B930F`** by the `[8254]` walk's four
-  hashed counter fields, coverage only (`FINDINGS.md` C293).* Detail in
+  hashed counter fields, coverage only (`FINDINGS.md` C293), then to
+  **`73ABDD5E2E7CD2E2`** when the ring card's live control state was hashed,
+  coverage again (C295).* Detail in
   `PROJECT_STATUS.md`.
 - [x] **`[030]` §11.6 transcribed whole and priced by the step — closed
   2026-09-15.** 60 → 248 rows over ten stages: §11.6.1–§11.6.18 whole, the five

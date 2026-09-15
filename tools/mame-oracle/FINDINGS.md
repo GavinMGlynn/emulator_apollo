@@ -18055,3 +18055,54 @@ beside 14 addressed requests and 22 thank-yous each way.
 **Clean at the card and at the driver**: deposits 51/52 with none refused,
 `RING_$RCV_INT_CNT` 51/52 with `RING_$BAD_DATA_CNT` and `RING_$ABORT_CNT` 0,
 NACKs 0, WACKs 0. `ring hash F9FAA93BDDA9156E`. No code changed.
+
+## C295 -- the ring card's control state was out of the hash, and a listing of reads found it
+
+C293 named it as open: "the ring window's operation flags are not in the state
+hash". The audit that closed it listed every field of `ap_ring_ctl_window_t` and
+`ap_ring_ctl_t`, then every *use* of each unhashed field, and classified each by
+whether anything reads it to decide what happens next.
+
+**A first classifier was wrong, and reported it confidently.** A grep that
+counted reads while discarding comment lines returned "reads 0" for every field
+-- including `operation_pending`, which gates the transmit acknowledge, and
+`xmit_status`, which a guest read returns -- and missed an assignment that wraps.
+Classifying from that output would have left live state out. The fields were
+classified instead from each one's listed uses, read line by line.
+
+**Live, and now hashed** -- nineteen window fields: the two lanes each status
+register returns (`xmit_status`, `command_402_status`, `rcv_status`,
+`command_404_status`); the byte-merge inputs (`byte_latch`, `command_400`,
+`last_write_402`, `last_write_404`) and the data port's latches (`port_latch`,
+`port_write_high`); the block move's source (`pointer_base`); `ten`'s level
+(`xmit_enabled`); the operation flags (`operation_pending`, `operation_on_wire`,
+`completion_deferred`); the relay and loopback state (`connected`,
+`loopback_enabled`); and the self-test loop's latches (`xmit_intend_to_copy`,
+`xmit_packet`). And three of the controller's: `node_id`, `tx_ack_seen` and
+`rx_copied_seen`.
+
+**Report-only, and left out**: the `MISC_CMD`/`XMIT_CMD` logs, `in_byte_write`
+(true only inside one write), the first-frame captures, the deposit counts and
+both censuses, and the station and medium pointers.
+
+### Both identity references moved, and both moves are coverage
+
+`ap_board_hash_ring` runs for every board, fitted or not, so these fields are
+digested on machines with no ring card:
+
+| harness | before | after | instructions | clocks |
+| --- | --- | --- | --- | --- |
+| DN3500 `identity-boot.sh` | `12CFDFC6C64B930F` | `73ABDD5E2E7CD2E2` | 350,000,000 | 1,834,623,621 |
+| DS5500 `dn5500-identity.sh` | `386D6B4E902E34A1` | `3B8111B6466415A8` | 4,456,406 | 27,925,641 |
+
+The DS5500 reference had already been stale since `2c688a7f`: the `[8254]` walk's
+four counter fields moved it, and that commit re-ran the DN3500 harness and not
+this one. A tree hashing the ring as it was before both changes reproduces
+`386D6B4E902E34A1` exactly, so neither move is behaviour. Unchanged and checked:
+`ctest` 153/153 on both presets, and the ring ROM self-test byte-identical on
+both revisions.
+
+*Next, named and not done*: `ap_board_hash_ring_station` has the same shape of
+gap -- `stripping`, `holds_ring`, `wants_ring`, the transmit acknowledge latch and
+the station's bit-clock state are among the fields it does not digest. That is
+the station's own audit.
