@@ -458,6 +458,11 @@ static bool gather_address_input(ap_m68030_cpu_t *cpu, ap_m68030_ea_kind_t kind,
       return false;
     }
     input->extension_word = word;
+    /* Kept for §11.6's mode-6 rows, which the word's format chooses. */
+    if (cpu->timing_ea_extensions < 2u) {
+      cpu->timing_ea_extension[cpu->timing_ea_extensions] = word;
+      cpu->timing_ea_extensions++;
+    }
     /* **The word this displacement came in, not the first one.** `[030]`
      * section 2 measures a PC-relative address from "the address of the
      * extension word", and with an immediate ahead of the effective address --
@@ -2701,9 +2706,36 @@ static bool write_frame_field(ap_m68030_cpu_t *cpu, uint32_t address,
  * print. Shared by the instruction pricing and by the exception path, whose
  * `CHK` rows are footnoted too. */
 static const ap_m68030_ea_timing_t *
-row_ea_timing(const ap_m68030_table_entry_t *row, uint16_t instruction) {
+row_ea_timing(const ap_m68030_table_entry_t *row, uint16_t instruction,
+              const uint16_t *extension) {
   const ap_m68030_ea_t ea =
       ap_m68030_ea_decode((instruction >> 3) & 7u, instruction & 7u);
+
+  /* **Mode 6 in the full format has rows of its own**, chosen by the extension
+   * word -- sixteen figures behind one mode field, from 6 clocks to 18 --
+   * where until 2026-09-15 every mode-6 address was priced as the brief
+   * format. §11.6.1's and §11.6.3's full-format rows are transcribed and used
+   * here. §11.6.2's, §11.6.4's and §11.6.5's are not, so a full-format address
+   * through those tables has no row rather than the brief one's figure. */
+  if (extension != nullptr &&
+      (ea.kind == AP_M68030_EA_INDEXED || ea.kind == AP_M68030_EA_PC_INDEXED)) {
+    const ap_m68030_extension_t decoded = ap_m68030_ea_decode_extension(*extension);
+    if (decoded.full_format) {
+      switch (row->effective_address_time) {
+      case AP_M68030_EA_TIME_FETCH:
+        return ap_m68030_ea_fetch_timing_full(&decoded);
+      case AP_M68030_EA_TIME_CALCULATE:
+        return ap_m68030_ea_calculate_timing_full(&decoded);
+      case AP_M68030_EA_TIME_FETCH_IMMEDIATE:
+      case AP_M68030_EA_TIME_CALCULATE_IMMEDIATE:
+      case AP_M68030_EA_TIME_JUMP:
+      case AP_M68030_EA_TIME_NONE:
+        return nullptr;
+      }
+      return nullptr;
+    }
+  }
+
   switch (row->effective_address_time) {
   case AP_M68030_EA_TIME_FETCH:
     /* The size is read only for §11.6.1's immediate rows: `CHK`'s bound, a
@@ -6892,6 +6924,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
   cpu->extension_words = 0;
   cpu->timing_extension = 0;
   cpu->timing_outcome = false;
+  cpu->timing_ea_extensions = 0;
 
   /* "The state of these bits when an instruction begins execution determines
    * whether the instruction generates a trace exception after the instruction
@@ -8062,7 +8095,11 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     if (raised != nullptr) {
       /* Composed with the row's address table where it names one: `CHK EA,Dn`
        * and `CHK2` taking their exception still fetched their bound first. */
-      out.clocks += row_microcode(raised, row_ea_timing(raised, out.instruction));
+      out.clocks += row_microcode(
+          raised, row_ea_timing(raised, out.instruction,
+                                cpu->timing_ea_extensions > 0u
+                                    ? &cpu->timing_ea_extension[0]
+                                    : nullptr));
     }
     if (vector == AP_M68030_VECTOR_ILLEGAL_INSTRUCTION &&
         (out.instruction & 0xFFF8u) == 0x4848u) {
@@ -8144,6 +8181,13 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       published = ap_m68030_timing_for_movem(out.instruction,
                                              cpu->timing_extension, &movem_row);
     }
+    if (published == nullptr && cpu->timing_ea_extensions > 0u) {
+      /* A `MOVE` into mode 6. Its destination's extension word is the last one
+       * the step read, since the source's comes first in the stream. */
+      published = ap_m68030_timing_for_move_indexed(
+          out.instruction,
+          cpu->timing_ea_extension[cpu->timing_ea_extensions - 1u]);
+    }
   }
   /* A row footnoted `*` publishes a *component*: `ADD Dn,EA` is 3 clocks, and
    * the effective address it reads through is another 3 or 4 from §11.6.1. Both
@@ -8160,7 +8204,12 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * Effective Address, which is a different table and not transcribed; pricing
    * one off §11.6.1 would produce a plausible number from the wrong page. */
   const ap_m68030_ea_timing_t *ea_timing =
-      published != nullptr ? row_ea_timing(published, out.instruction) : nullptr;
+      published != nullptr
+          ? row_ea_timing(published, out.instruction,
+                          cpu->timing_ea_extensions > 0u
+                              ? &cpu->timing_ea_extension[0]
+                              : nullptr)
+          : nullptr;
 
   const bool priceable =
       published != nullptr &&

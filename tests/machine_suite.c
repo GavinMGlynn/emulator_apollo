@@ -996,6 +996,53 @@ static void test_the_scsi_wait_loops_memory_forms_compose_from_their_tables(
   }
 }
 
+/* Mode 6 on a running machine, priced by its extension word, warm. A brief
+ * destination is §11.6.6's `6(0/0/1)`, a full-format `(B)` destination its
+ * `8(0/0/1)`, and a full-format `(d32,B)` source §11.6.1's `12(1/0/0)` composed
+ * with `MOVE EA,Dn` to 14 -- where until 2026-09-15 every mode-6 source was
+ * priced as the brief format, which composes to 8. The destinations take D0,
+ * which is zero, so each writes the long word at A0 plus nothing. */
+static void test_mode_six_is_priced_by_its_extension_word_on_a_machine(void) {
+  static const struct {
+    uint16_t words[4];
+    unsigned count;
+    uint64_t warm;
+    const char *what;
+  } CASES[] = {
+      {{0x2180u, 0x0000u}, 2u, 6u, "MOVE.L D0,(0,A0,D0.W)"},
+      {{0x2180u, 0x0110u}, 2u, 8u, "MOVE.L D0,(A0,D0.W) full format"},
+      {{0x2030u, 0x01B0u, 0x0000u, 0x4000u}, 4u, 14u,
+       "MOVE.L ($4000,D0.W),D0 full format, base suppressed"},
+  };
+
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    blank();
+    ap_machine_t m;
+    ap_machine_init(&m, ram, RAM_BYTES);
+    ap_machine_reset(&m, PROGRAM, STACK);
+    write_cacr(&m, CACR_EI);
+    for (unsigned w = 0; w < CASES[c].count; w++) {
+      TEST_ASSERT_TRUE(
+          ap_machine_write(&m, PROGRAM + 2u * w, 2u, CASES[c].words[w]));
+    }
+    m.cpu.regs.a[0] = 0x00004000u;
+
+    uint64_t previous = 0;
+    for (unsigned i = 0; i < 5u; i++) {
+      m.cpu.regs.pc = PROGRAM;
+      m.cpu.regs.d[0] = 0u;
+      ap_m68030_fetch_reset(&m.cpu.fetch, PROGRAM);
+      previous = m.cpu.clocks;
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED,
+                                    ap_machine_step(&m).status, CASES[c].what);
+      if (i > 0u) {
+        TEST_ASSERT_EQUAL_UINT64_MESSAGE(CASES[c].warm, m.cpu.clocks - previous,
+                                         CASES[c].what);
+      }
+    }
+  }
+}
+
 /* `CHK2` and `CMP2` on a running machine, told apart by extension bit 11 --
  * which the executor has to leave for the timing, and until 2026-09-15 did
  * not, so an in-bounds `CHK2` went unpriced whatever its lookup's test said.
@@ -3163,6 +3210,7 @@ int main(void) {
   RUN_TEST(test_the_address_forms_compose_from_their_own_tables);
   RUN_TEST(test_a_trap_costs_its_published_cache_case_warm);
   RUN_TEST(test_chk2_and_cmp2_are_told_apart_by_their_extension_word);
+  RUN_TEST(test_mode_six_is_priced_by_its_extension_word_on_a_machine);
   RUN_TEST(test_an_rte_costs_its_published_cache_case_warm);
   RUN_TEST(test_the_footnoted_memory_forms_compose_to_the_manuals_total);
   RUN_TEST(test_the_scsi_wait_loops_memory_forms_compose_from_their_tables);

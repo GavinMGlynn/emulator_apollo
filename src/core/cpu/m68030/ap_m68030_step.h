@@ -366,6 +366,12 @@ typedef struct {
    * step boundary and are not hashed. */
   uint16_t timing_extension;
   bool timing_outcome;
+  /* The indexed modes' extension words this step read, in the order it read
+   * them -- a `MOVE`'s source before its destination, so at most two. §11.6's
+   * mode-6 rows are chosen by the word's format and its displacement sizes,
+   * which no instruction word carries. Reset every step, like the pair above. */
+  uint16_t timing_ea_extension[2];
+  unsigned timing_ea_extensions;
 
   /* An exception an executing instruction raised, held until the step can take
    * it: an executor knows a divide had a zero divisor, but not the length of

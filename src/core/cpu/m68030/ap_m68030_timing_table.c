@@ -3,6 +3,7 @@
 
 #include "cpu/m68030/ap_m68030_timing_table.h"
 
+#include "cpu/m68030/ap_m68030_ea.h"
 #include "cpu/m68030/ap_m68030_exception.h"
 
 /* Every row here has an instruction-cache case of the form `n(0/0/0)` in
@@ -274,6 +275,24 @@ enum {
   ROW_MULU_L_EA,
   ROW_DIVS_L_EA,
   ROW_DIVU_L_EA,
+  /* §11.6.6's mode-6 destinations. */
+  ROW_MOVE_BRIEF,
+  ROW_MOVE_FULL_A_NONE,
+  ROW_MOVE_FULL_A_OD_NULL,
+  ROW_MOVE_FULL_A_OD_WORD,
+  ROW_MOVE_FULL_A_OD_LONG,
+  ROW_MOVE_FULL_NONE_BD_NULL,
+  ROW_MOVE_FULL_NONE_BD_WORD,
+  ROW_MOVE_FULL_NONE_BD_LONG,
+  ROW_MOVE_FULL_OD_NULL_BD_NULL,
+  ROW_MOVE_FULL_OD_NULL_BD_WORD,
+  ROW_MOVE_FULL_OD_NULL_BD_LONG,
+  ROW_MOVE_FULL_OD_WORD_BD_NULL,
+  ROW_MOVE_FULL_OD_WORD_BD_WORD,
+  ROW_MOVE_FULL_OD_WORD_BD_LONG,
+  ROW_MOVE_FULL_OD_LONG_BD_NULL,
+  ROW_MOVE_FULL_OD_LONG_BD_WORD,
+  ROW_MOVE_FULL_OD_LONG_BD_LONG,
   ROW_COUNT,
 };
 
@@ -804,6 +823,39 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_MULU_L_EA] = {"MULU.L EA,Dn", {.head = 2, .tail = 0, .cache_case = 44, .no_cache_case = 44, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_DIVS_L_EA] = {"DIVS.L EA,Dn", {.head = 0, .tail = 0, .cache_case = 90, .no_cache_case = 90, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_DIVU_L_EA] = {"DIVU.L EA,Dn", {.head = 0, .tail = 0, .cache_case = 78, .no_cache_case = 78, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+
+    /* §11.6.6's mode-6 destinations, from the page images (pp. 11-37, 11-38),
+     * every one `*`, the source through §11.6.1.
+     *
+     * The full format prints 26 rows in two groups -- `(d16,An)` spelled out,
+     * and `B` for "0, An, PC, Xn, An + Xn, PC + Xn" -- which reduce to sixteen
+     * figure sets, since the page's own note says the index does not affect
+     * timing and every indexed row equals its unindexed neighbour. **Every
+     * group A row equals its group B row with the base displacement dropped**,
+     * as in §11.6.1 and §11.6.3: a third table confirming the `PROVISIONAL`
+     * reading that a word base displacement is free when the base is a register
+     * (`ap_m68030_ea_timing.h`). Rows are named for the first form the page
+     * prints with those figures.
+     *
+     * Classes count the instruction's own words and the destination's, as
+     * `MOVE EA,xxx.L` does: an even count invariant, an odd one odd. */
+    [ROW_MOVE_BRIEF] = {"MOVE EA,(d8,An,Xn)", {.head = 4, .tail = 0, .cache_case = 6, .no_cache_case = 7, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_FULL_A_NONE] = {"MOVE EA,(d16,An) or (d16,PC)", {.head = 2, .tail = 0, .cache_case = 8, .no_cache_case = 9, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ODD_WORDS},
+    [ROW_MOVE_FULL_A_OD_NULL] = {"MOVE EA,([d16,An],Xn) or ([d16,PC],Xn)", {.head = 2, .tail = 0, .cache_case = 10, .no_cache_case = 11, .reads = 1, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ODD_WORDS},
+    [ROW_MOVE_FULL_A_OD_WORD] = {"MOVE EA,([d16,An],d16) or ([d16,PC],d16)", {.head = 2, .tail = 0, .cache_case = 12, .no_cache_case = 14, .reads = 1, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_FULL_A_OD_LONG] = {"MOVE EA,([d16,An],d32) or ([d16,PC],d32)", {.head = 2, .tail = 0, .cache_case = 14, .no_cache_case = 16, .reads = 1, .writes = 1, .prefetches = 3}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ODD_WORDS},
+    [ROW_MOVE_FULL_NONE_BD_NULL] = {"MOVE EA,(B)", {.head = 4, .tail = 0, .cache_case = 8, .no_cache_case = 9, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_FULL_NONE_BD_WORD] = {"MOVE EA,(d16,B)", {.head = 4, .tail = 0, .cache_case = 10, .no_cache_case = 12, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ODD_WORDS},
+    [ROW_MOVE_FULL_NONE_BD_LONG] = {"MOVE EA,(d32,B)", {.head = 4, .tail = 0, .cache_case = 14, .no_cache_case = 16, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_FULL_OD_NULL_BD_NULL] = {"MOVE EA,([B])", {.head = 4, .tail = 0, .cache_case = 10, .no_cache_case = 11, .reads = 1, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_FULL_OD_NULL_BD_WORD] = {"MOVE EA,([d16,B])", {.head = 4, .tail = 0, .cache_case = 12, .no_cache_case = 14, .reads = 1, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ODD_WORDS},
+    [ROW_MOVE_FULL_OD_NULL_BD_LONG] = {"MOVE EA,([d32,B])", {.head = 4, .tail = 0, .cache_case = 16, .no_cache_case = 18, .reads = 1, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_FULL_OD_WORD_BD_NULL] = {"MOVE EA,([B],d16)", {.head = 4, .tail = 0, .cache_case = 12, .no_cache_case = 14, .reads = 1, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ODD_WORDS},
+    [ROW_MOVE_FULL_OD_WORD_BD_WORD] = {"MOVE EA,([d16,B],d16)", {.head = 4, .tail = 0, .cache_case = 14, .no_cache_case = 17, .reads = 1, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_FULL_OD_WORD_BD_LONG] = {"MOVE EA,([d32,B],d16)", {.head = 4, .tail = 0, .cache_case = 18, .no_cache_case = 21, .reads = 1, .writes = 1, .prefetches = 3}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ODD_WORDS},
+    [ROW_MOVE_FULL_OD_LONG_BD_NULL] = {"MOVE EA,([B],d32)", {.head = 4, .tail = 0, .cache_case = 14, .no_cache_case = 16, .reads = 1, .writes = 1, .prefetches = 2}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MOVE_FULL_OD_LONG_BD_WORD] = {"MOVE EA,([d16,B],d32)", {.head = 4, .tail = 0, .cache_case = 16, .no_cache_case = 19, .reads = 1, .writes = 1, .prefetches = 3}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ODD_WORDS},
+    [ROW_MOVE_FULL_OD_LONG_BD_LONG] = {"MOVE EA,([d32,B],d32)", {.head = 4, .tail = 0, .cache_case = 20, .no_cache_case = 23, .reads = 1, .writes = 1, .prefetches = 3}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
@@ -938,6 +990,78 @@ ap_m68030_timing_for_movem(uint16_t instruction, uint16_t mask,
         AP_M68030_PREFETCH_ALIGNMENT_INVARIANT};
   }
   return storage;
+}
+
+const ap_m68030_table_entry_t *
+ap_m68030_timing_for_move_indexed(uint16_t instruction, uint16_t extension) {
+  const unsigned family = (unsigned)((instruction >> 12) & 0xFu);
+  if (family < 0x1u || family > 0x3u || ((instruction >> 6) & 0x7u) != 0x6u) {
+    return nullptr;
+  }
+  const ap_m68030_extension_t decoded = ap_m68030_ea_decode_extension(extension);
+  if (!decoded.full_format) {
+    return &TABLE[ROW_MOVE_BRIEF];
+  }
+  if (decoded.reserved) {
+    return nullptr;
+  }
+  /* Group A is a word base displacement off a register, the reading
+   * `ap_m68030_ea_fetch_timing_full` makes, and the base displacement drops
+   * out of its figures. */
+  const bool word_based = decoded.base_displacement_size == AP_M68030_BD_WORD &&
+                          !decoded.base_suppressed;
+  const unsigned bd = decoded.base_displacement_size == AP_M68030_BD_NULL   ? 0u
+                      : decoded.base_displacement_size == AP_M68030_BD_WORD ? 1u
+                      : decoded.base_displacement_size == AP_M68030_BD_LONG ? 2u
+                                                                            : 3u;
+  if (bd == 3u) {
+    return nullptr;
+  }
+
+  if (decoded.indirect == AP_M68030_INDIRECT_NONE) {
+    if (word_based) {
+      return &TABLE[ROW_MOVE_FULL_A_NONE];
+    }
+    static const unsigned NONE[3] = {ROW_MOVE_FULL_NONE_BD_NULL,
+                                     ROW_MOVE_FULL_NONE_BD_WORD,
+                                     ROW_MOVE_FULL_NONE_BD_LONG};
+    return &TABLE[NONE[bd]];
+  }
+  if (decoded.indirect == AP_M68030_INDIRECT_RESERVED) {
+    return nullptr;
+  }
+  switch (decoded.outer_displacement_size) {
+  case AP_M68030_OD_NULL: {
+    if (word_based) {
+      return &TABLE[ROW_MOVE_FULL_A_OD_NULL];
+    }
+    static const unsigned OD_NULL[3] = {ROW_MOVE_FULL_OD_NULL_BD_NULL,
+                                        ROW_MOVE_FULL_OD_NULL_BD_WORD,
+                                        ROW_MOVE_FULL_OD_NULL_BD_LONG};
+    return &TABLE[OD_NULL[bd]];
+  }
+  case AP_M68030_OD_WORD: {
+    if (word_based) {
+      return &TABLE[ROW_MOVE_FULL_A_OD_WORD];
+    }
+    static const unsigned OD_WORD[3] = {ROW_MOVE_FULL_OD_WORD_BD_NULL,
+                                        ROW_MOVE_FULL_OD_WORD_BD_WORD,
+                                        ROW_MOVE_FULL_OD_WORD_BD_LONG};
+    return &TABLE[OD_WORD[bd]];
+  }
+  case AP_M68030_OD_LONG: {
+    if (word_based) {
+      return &TABLE[ROW_MOVE_FULL_A_OD_LONG];
+    }
+    static const unsigned OD_LONG[3] = {ROW_MOVE_FULL_OD_LONG_BD_NULL,
+                                        ROW_MOVE_FULL_OD_LONG_BD_WORD,
+                                        ROW_MOVE_FULL_OD_LONG_BD_LONG};
+    return &TABLE[OD_LONG[bd]];
+  }
+  case AP_M68030_OD_NONE:
+    break;
+  }
+  return nullptr;
 }
 
 const ap_m68030_table_entry_t *

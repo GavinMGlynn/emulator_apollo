@@ -168,6 +168,13 @@ ap_m68030_timing_for_vector(unsigned vector, uint16_t instruction);
 ap_m68030_timing_for_movem(uint16_t instruction, uint16_t mask,
                            ap_m68030_table_entry_t *storage);
 
+/* §11.6.6's `MOVE` into mode 6, by the destination's extension word: the brief
+ * format's one row, or one of the full format's, chosen by base displacement,
+ * memory indirection and outer displacement. NULL for a word that is not a
+ * `MOVE` with a mode-6 destination, and for a reserved extension word. */
+[[nodiscard]] const ap_m68030_table_entry_t *
+ap_m68030_timing_for_move_indexed(uint16_t instruction, uint16_t extension);
+
 /* ---------------------------------------------------------------------------
  * The branches, whose cost is not a function of the instruction word.
  *

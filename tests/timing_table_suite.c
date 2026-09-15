@@ -298,6 +298,10 @@ static void test_every_inexact_prefetch_cost_is_named(void) {
       "CHK Dn,Dn (Exception Taken)",   /* (30−28)/3 */
       "CHK EA,Dn (Exception Taken)",   /* (30−28)/3 */
       "CHK2 Mem,Rn (Exception Taken)", /* (42−40)/3 */
+      "MOVE EA,(d16,An) or (d16,PC)",            /* (9−8)/2 */
+      "MOVE EA,([d16,An],Xn) or ([d16,PC],Xn)",  /* (11−10)/2 */
+      "MOVE EA,([d16,An],d32) or ([d16,PC],d32)", /* (16−14)/3 */
+      "MOVE EA,([d16,B],d16)",                   /* (17−14)/2 */
       "LINK.L",  /* (7−6)/2 = 0.5 */
   };
 
@@ -516,6 +520,15 @@ static void test_every_row_is_returned_by_some_instruction(void) {
     }
   }
 
+  /* §11.6.6's mode-6 destinations, by every extension word a `MOVE` into
+   * `(d8,A0,Xn)` could carry. */
+  for (uint32_t extension = 0; extension <= 0xFFFFu; extension++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_move_indexed(0x2180u, (uint16_t)extension);
+    if (row != nullptr) {
+      reached[row - table] = true;
+    }
+  }
   /* `DIVS.L Dn,Dn` and `DIVU.L Dn,Dn` were the two named exceptions until
    * 2026-09-15, when the selected lookup took the extension word's signed bit.
    * Every row is reached now. */
@@ -805,6 +818,43 @@ static void test_movem_is_priced_by_the_registers_it_moves(void) {
   TEST_ASSERT_NULL(ap_m68030_timing_for_movem(0x4A90u, 0x00FFu, &storage)); /* TST.L (A0) */
 }
 
+/* §11.6.6's mode-6 destinations are chosen by the destination's extension word:
+ * the brief format's one row, or the full format's by base displacement,
+ * indirection and outer displacement -- group A when a word base displacement
+ * rides on a register. Extension words, `D0.W*1` throughout: bit 8 the full
+ * format, bit 7 base suppress, bits 5-4 the base displacement size (`01` null,
+ * `10` word, `11` long, `00` reserved), bits 2-0 the indirection. */
+static void test_a_move_into_mode_six_is_priced_by_its_extension_word(void) {
+  static const struct {
+    uint16_t instruction;
+    uint16_t extension;
+    const char *form; /* nullptr: no row, by design */
+    const char *what;
+  } CASES[] = {
+      {0x2180u, 0x0000u, "MOVE EA,(d8,An,Xn)", "brief"},
+      {0x2180u, 0x0110u, "MOVE EA,(B)", "full, no displacement"},
+      {0x2180u, 0x0120u, "MOVE EA,(d16,An) or (d16,PC)", "word base off A0"},
+      {0x2180u, 0x01A0u, "MOVE EA,(d16,B)", "word base, base suppressed"},
+      {0x2180u, 0x0130u, "MOVE EA,(d32,B)", "long base"},
+      {0x2180u, 0x0111u, "MOVE EA,([B])", "memory indirect, no outer"},
+      {0x2180u, 0x0122u, "MOVE EA,([d16,An],d16) or ([d16,PC],d16)",
+       "group A, word outer"},
+      {0x2180u, 0x0133u, "MOVE EA,([d32,B],d32)", "the largest"},
+      {0x2180u, 0x0100u, nullptr, "a reserved base displacement size"},
+      {0x2140u, 0x0000u, nullptr, "MOVE.L D0,(d16,A0) -- mode 5"},
+      {0xD180u, 0x0000u, nullptr, "not a MOVE"},
+  };
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    const ap_m68030_table_entry_t *row = ap_m68030_timing_for_move_indexed(
+        CASES[c].instruction, CASES[c].extension);
+    if (CASES[c].form == nullptr) {
+      TEST_ASSERT_NULL_MESSAGE(row, CASES[c].what);
+    } else {
+      TEST_ASSERT_TRUE_MESSAGE(form_is(row, CASES[c].form), CASES[c].what);
+    }
+  }
+}
+
 /* **Domain/OS's SCSI wait loop, priced in every instruction.** The kernel's
  * `3C4E4612` polls the ASC 160,000 times and gives up; three of its six
  * instructions had no row, so the loop ran at 39 clocks an iteration and
@@ -941,6 +991,31 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
       {"DIVU.L Dn,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
       {"DIVS.L EA,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
       {"DIVU.L EA,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      /* §11.6.6's mode-6 destinations, by the instruction's words and the
+       * destination's: the extension word plus its displacements. */
+      {"MOVE EA,(d8,An,Xn)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"MOVE EA,(d16,An) or (d16,PC)", AP_M68030_PREFETCH_ODD_WORDS,
+       "three words"},
+      {"MOVE EA,([d16,An],Xn) or ([d16,PC],Xn)", AP_M68030_PREFETCH_ODD_WORDS,
+       "three words"},
+      {"MOVE EA,([d16,An],d16) or ([d16,PC],d16)",
+       AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "four words"},
+      {"MOVE EA,([d16,An],d32) or ([d16,PC],d32)", AP_M68030_PREFETCH_ODD_WORDS,
+       "five words"},
+      {"MOVE EA,(B)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"MOVE EA,(d16,B)", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
+      {"MOVE EA,(d32,B)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "four words"},
+      {"MOVE EA,([B])", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"MOVE EA,([d16,B])", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
+      {"MOVE EA,([d32,B])", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "four words"},
+      {"MOVE EA,([B],d16)", AP_M68030_PREFETCH_ODD_WORDS, "three words"},
+      {"MOVE EA,([d16,B],d16)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "four words"},
+      {"MOVE EA,([d32,B],d16)", AP_M68030_PREFETCH_ODD_WORDS, "five words"},
+      {"MOVE EA,([B],d32)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "four words"},
+      {"MOVE EA,([d16,B],d32)", AP_M68030_PREFETCH_ODD_WORDS, "five words"},
+      {"MOVE EA,([d32,B],d32)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "six words"},
       {"Bcc (Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
       {"DBcc (cc False, Count Not Expired)",
        AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "it branches"},
@@ -1097,6 +1172,7 @@ int main(void) {
   RUN_TEST(test_the_rows_an_extension_or_outcome_selects_are_found);
   RUN_TEST(test_an_exception_is_priced_by_its_vector_and_its_instruction);
   RUN_TEST(test_movem_is_priced_by_the_registers_it_moves);
+  RUN_TEST(test_a_move_into_mode_six_is_priced_by_its_extension_word);
   RUN_TEST(test_the_scsi_drivers_wait_loop_is_priced_in_every_instruction);
   RUN_TEST(test_the_rows_that_expose_a_prefetch_are_the_memory_forms);
   RUN_TEST(test_an_exact_prefetch_cost_is_not_always_zero_or_one);
