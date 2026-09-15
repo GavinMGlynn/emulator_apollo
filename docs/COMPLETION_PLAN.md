@@ -4638,7 +4638,20 @@ substance. They are the only items here with no route that is simply work.
       pages passed over — 7 chapters and Appendix A read in full, the rest
       condensed*). No code change; the finishing pass excluded the bound-in
       reverse-mapped MMU as the DN3000's DMMU and corrected the record's own
-      Figure 9-1 table from the page image. It **confirms six findings this
+      Figure 9-1 table from the page image.
+      **And the shelf is not finished.** The same day, matching all 100
+      register filenames against the records found four documents that no
+      record gave a basis for. Three are settled by scan in
+      `CONTENT_TRIAGE.md`: `009496-00`, `009492-00` and `008856-00` Vol 1.
+      **`009916-A00` *Planning Domain Networks and Internets* is owed a whole
+      walk** — it is `RING.md`'s `[PLAN]`, cited by finding 9 and by
+      `ap_ring_medium.h`, and its cable tables overlap `[MAC]` Table A-1. It is
+      the one live reading on this item.
+      **Walked whole the same day, 166/166** (`009916-A00_WALK.md`), with no
+      behaviour change. Finding 9 had put a paraphrase in quotation marks; that
+      is corrected in `RING.md` and `ap_ring_medium.h`. Table 3-1 is a second
+      witness to `[MAC]` Table A-1. An AT node takes at most two ATR
+      controllers, a configuration this core does not offer. It **confirms six findings this
       project measured off a running DS5500 and explains two of them** — the
       vector table is the PROM's trap page copied and relocated (§26.1.1), the
       service table is machine ID at `100`, auxiliary info at `102`, entry points

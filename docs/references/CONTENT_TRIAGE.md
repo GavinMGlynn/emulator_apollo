@@ -208,6 +208,61 @@ false:
 - **`011435-A02`** — "Many modern processors, such as the MC68020, are designed
   to transfer data most efficiently if the data is naturally aligned."
 
+## Four documents no record named, found 2026-09-15 by matching every filename
+
+`SOFTWARE_SHELF_WALK.md`'s state line said every shelf document was named in a
+walk or triage record. **Matching all hundred of the register's filenames
+against every record under `docs/references/` found four that no record gives a
+basis for.** Two are mentioned nowhere. One appears only as an order number
+inside another walk. The fourth is a source tag in `RING.md` with no walk behind
+it.
+
+The earlier check matched by order number, which hid one case: `008856-00` is
+shared by two volumes, so naming Vol 2 in the ranking below made Vol 1 look
+covered. Each document was scored for hard terms, then for the first pass's
+broad vocabulary, and every broad hit was read in context:
+
+| Document | Text | Hard terms | Broad hits, read in context |
+| --- | --- | --- | --- |
+| `009496-00` *Update Package 1 to the DOMAIN System Command Reference* Jun 87 | 106,551 | 0 | 9 — trademark boilerplate, and index entries for an address-space listing and the `csr` command |
+| `009492-00` *Making the Transition to SR9.5* Jan 87 | 71,225 | 0 | 21 — C's `register` storage class and optimiser notes, with one "device register (control or data) is mapped as a specific virtual address" explaining `volatile` |
+| `008856-00` *DOMAIN System Call Reference* Vol 1, Feb 86 | 725,075 | 0 | 7 — "address space" in the API sense, for bitmap storage |
+| `008856-00` *DOMAIN System Call Reference* Vol 2, Feb 86 | 870,948 | 0 | 31 — "address space" in the API sense, and `SMD_$BLT_U` |
+
+**The first three are settled and read no further.**
+
+**Vol 2 is settled too, but its `SMD_$BLT_U` was checked rather than
+dismissed**, because this core models a blitter. The call passes "a
+thirteen-element array of 2-byte integers" holding "CS; CD; source and
+destination Xs, Xe, Ys, and Ye; and the display mode" to the display *driver*,
+which runs the transfer and by default busy-waits for it. That is the 1986
+driver's software interface, not a register file. `ap_graphics.h`'s register
+file, from `002398-04` pp. 12-16 to 12-22, has no coordinate registers, so this
+is not a witness to it. *The register also lists both volumes' layer as "image",
+which is wrong*: each carries Type 1 Helvetica and Times fonts and 725-871 K
+characters of real text.
+
+**The fourth is not settled by a scan.** `009916-A00` *Planning Domain Networks
+and Internets* is `RING.md`'s `[PLAN]`: finding 9 cites it, and so does
+`ap_ring_medium.h`'s node-count comment. Its six hard-term lines are coax and
+fibre cable specifications — velocity of propagation, attenuation per MHz,
+bandwidth per km — plus a T1 clock. They overlap `[MAC]` Table A-1, the source
+of the ring medium's delay model.
+
+A document that has yielded facts this core uses is read whole. **Owed: a walk,
+166 pages.** Its text layer is Acrobat Paper Capture OCR, so every table will be
+read as an image.
+
+**Walked whole the same day, 166/166** (`009916-A00_WALK.md`). Three results:
+
+- Finding 9 had quoted words the document never uses. The quotation is now
+  corrected in `RING.md` and `ap_ring_medium.h`.
+- Table 3-1 is a second witness to `[MAC]` Table A-1.
+- An AT node takes at most two ATR controllers, a configuration this core does
+  not offer.
+
+No behaviour changed.
+
 ## The seven brochures, settled by looking at one
 
 `CONTENT_TRIAGE`'s first pass could not read them — two to six characters of

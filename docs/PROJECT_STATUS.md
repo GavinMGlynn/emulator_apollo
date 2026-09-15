@@ -6634,6 +6634,12 @@ the first three are already memories. The difference is that this shelf had been
 hardware document. `SOFTWARE_SHELF_WALK.md` is the register of the hundred that
 were never listed — 20,770 pages — and `004977-02_WALK.md` is the first of them
 read.
+*2026-09-15: every shelf document now has a recorded basis.* A filename match
+found four that had none. Three are settled by scan (`CONTENT_TRIAGE.md`), and
+`009916-A00` (`[PLAN]`) was walked whole, 166/166. The walk reworded `RING.md`
+finding 9 and `ap_ring_medium.h`'s comment, which had quoted words the document
+never uses, and found Table 3-1 a second witness to the cable model. No
+behaviour change.
 
 ### And the other 40% is the Winchester arriving at the sector
 

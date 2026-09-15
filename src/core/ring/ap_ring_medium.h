@@ -44,9 +44,12 @@
 
 #include "ring/ap_ring_phy.h"
 
-/* Enough for the ring sizes this project runs. `[PLAN]` records real rings of
- * "well over a hundred nodes", and nothing here scales with the bound, but a
- * fixed array keeps the core allocation-free -- which it is throughout. */
+/* Enough for the ring sizes this project runs, and not the hardware's bound:
+ * `[PLAN]` §4.1.1 puts "hundreds of Apollo nodes in a single Apollo Token Ring
+ * network" with "a practical limit of 1024 nodes". Nothing here scales with the
+ * bound, but a fixed array keeps the core allocation-free -- which it is
+ * throughout. (This said `[PLAN]` records "well over a hundred nodes"; the
+ * document never uses the phrase -- `009916-A00_WALK.md`.) */
 #define AP_RING_MAX_NODES 64u
 
 /* Longest cable a link may model, in bit times. `[MAC]` §3.4 puts the maximum

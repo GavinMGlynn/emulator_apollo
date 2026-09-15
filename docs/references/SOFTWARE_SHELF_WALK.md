@@ -1,19 +1,37 @@
 # The Domain/OS software shelf — walk coverage record
 
+**State, corrected 2026-09-15: the line below was false for four documents.**
+Matching all hundred of the register's filenames against every record under
+`docs/references/` found four that no record gives a basis for:
+
+- `009496-00`, `009492-00` and `008856-00` Vol 1 are now settled by scan in
+  `CONTENT_TRIAGE.md`. Vol 1 looked covered only because Vol 2 shares its order
+  number.
+- `009916-A00`, `RING.md`'s `[PLAN]`, is cited by the ring code and is owed a
+  whole walk.
+
+With those four added, every register filename matches a record that names it
+with a basis. Patents match in their comma form, 4,716,575.
+
 **State: every one of the 96 is named in a walk or triage record, with its
 basis. Verified by matching the shelf against `docs/references/*_WALK.md` and
 `CONTENT_TRIAGE.md` — not by arithmetic, which was wrong six times.**
 
 | Class | Count | Basis |
 | --- | --- | --- |
-| **walked whole** | 10 | every page read — **`AEGIS_Internals` (426/426, every chapter's text layer in full and every memory map and register figure as an image, 2026-09-15; this row said 9)**, `004977-02`, both 1981 architecture papers, **`008860-A03` (295/295)** and **`002398-03` (260/260)**, both finished 2026-09-13, **`002398-01` Rev 1 (215/215, every page as an image, 2026-09-15)**, **`000959-A00` (314/314)**, **`014962-A00` (157/157, every chapter read in full, 2026-09-15)**, and **`008862-01` (every chapter and appendix read in full, 2026-09-15; the damaged index passed over)**. *Corrected 2026-09-15: this row counted 10, including `008862-01`, `014962-A00` and `AEGIS_Internals`, whose own records say "passed over" with the rest condensed and full reads owed* |
+| **walked whole** | 11 | every page read — **`009916-A00` *Planning Domain Networks and Internets* (166/166, every cited table as an image, 2026-09-15; this row said 10)**, **`AEGIS_Internals` (426/426, every chapter's text layer in full and every memory map and register figure as an image, 2026-09-15; this row said 9)**, `004977-02`, both 1981 architecture papers, **`008860-A03` (295/295)** and **`002398-03` (260/260)**, both finished 2026-09-13, **`002398-01` Rev 1 (215/215, every page as an image, 2026-09-15)**, **`000959-A00` (314/314)**, **`014962-A00` (157/157, every chapter read in full, 2026-09-15)**, and **`008862-01` (every chapter and appendix read in full, 2026-09-15; the damaged index passed over)**. *Corrected 2026-09-15: this row counted 10, including `008862-01`, `014962-A00` and `AEGIS_Internals`, whose own records say "passed over" with the rest condensed and full reads owed* |
 | **read on their own terms, nothing owed** | 5 | each record's *What is owed* says nothing: `[CFG]` and its July 1990 quick reference (every model's description and option pages and the upgrade section as images, 2026-09-15), `000959-10` (chapters 1-3 read, the rest differenced against the SR10 edition), `018901-A00` (202/202 triaged, ~45 pages as images), `Apollo_Price_List` (specification blocks whole, prices triaged), `000792-A01` (Appendix F whole, the language triaged; Appendix E only if the 68882 model needs a workload fact) |
-| **in progress** | 0 | none. *`AEGIS_Internals` finished 2026-09-15. This row said 1: "`AEGIS_Internals` — 7 chapters and Appendix A whole; 22 chapters, Appendix B's figures and the bound-in* Memory Organization and Management *(pp. 371-426) owed", and before that 2* |
+| **in progress** | 0 | none — `009916-A00` was walked whole later the same day (`009916-A00_WALK.md`). *This row said 1:* **`009916-A00`** *Planning Domain Networks and Internets* — `RING.md`'s `[PLAN]`, cited by the ring code and never walked; found by the filename match above, owed whole. *This row said 0 for part of 2026-09-15:* none. *`AEGIS_Internals` finished 2026-09-15. This row said 1: "`AEGIS_Internals` — 7 chapters and Appendix A whole; 22 chapters, Appendix B's figures and the bound-in* Memory Organization and Management *(pp. 371-426) owed", and before that 2* |
 | **release-notes shelf** | 6 | `RELEASE_NOTES_WALK.md` — **read on its own terms, 2026-09-15**: every contents page read, every hardware-bearing section of SR9.7, SR10.0β2, SR10.1 and SR10.2 read as images, the SR10.4 addendum 5/5, `018901-A00` triaged whole; nothing hardware-bearing owed. *Was "§1.4/§2.1 read, the SR10.4 addendum read whole (5/5, 2026-09-15), the rest owed"* |
 | **patents** | 10 | `PATENTS_WALK.md` — front pages read, machine identified, 1 in use, 1 kept, 8 out of scope |
 | **settled by measurement** | 50 | `CONTENT_TRIAGE.md` — full text scored for hard hardware vocabulary, **each named with its score**, and every non-zero match read in context. **One moved out**: `008860-A03` scored 452,048 and was then walked whole, which is what a high score is supposed to lead to |
 | **brochures** | 7 | one rendered and inspected, the class extended, all named in full |
 
+**And that one was walked whole later the same day** (`009916-A00_WALK.md`),
+so no document on this shelf now has chapters or pages owed.
+**Corrected the same day: one document is owed** — `009916-A00`, found by
+the filename match at the top of this file. The next paragraph was written
+before that match was run, and is kept as it stood.
 **Recounted 2026-09-15, after `AEGIS_Internals` finished: no document on this
 shelf has named chapters or pages owed.** Every walk and triage record's own
 *What is owed* section is empty, the release-notes shelf included. *The line
