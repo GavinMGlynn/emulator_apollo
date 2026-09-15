@@ -77,6 +77,24 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .ram_base = 0x100000u,
         .ram_max_bytes = 0x800000u, /* 0x100000-0x8fffff = 8 MB [S3K] */
         .has_ring = true,
+        /* **The MMU is contested, and by four statements now.** `[S3K]` calls
+         * the DS3000's MMU a "DMMU" and the DS4000's a "PMMU (MC68851)" three
+         * times (Tables 2-10/2-11, §3.2's CPU space decode); `005809-A00`
+         * §1.4.2 gives a DN3000 64 MB of virtual space "with DMMU hardware" and
+         * 256 MB "with new PMMU hardware"; and `[CFG]` p. H-4 sells U33010,
+         * "Upgrades a DN3000 to a DN3010", as what is needed "to utilize 256
+         * [MB] virtual memory". So the DN3010 is the PMMU machine and a DN3000
+         * is not. This row keeps the 68851 because the oracle registers a
+         * Series 3000 as `MC68020PMMU`, the DN3000 PROM diff agrees on 29 of
+         * 29 CPU fields, and no document describes the DMMU's registers.
+         *
+         * **Not marked `provisional`, deliberately**: `model_suite` holds that
+         * a model with a runnable oracle carries no guesses, because the
+         * oracle settles them. Here the oracle *is* the source of the 68851
+         * and cannot discriminate, so this is recorded as an open question in
+         * `008778-03_WALK.md` and `CFG_WALK.md` rather than as a marker the
+         * invariant forbids. What would settle it is a DN3000 program that
+         * behaves differently on a DMMU -- a 64 MB address space limit. */
         .provisional = nullptr,
     },
     [AP_MODEL_DN3500] = {

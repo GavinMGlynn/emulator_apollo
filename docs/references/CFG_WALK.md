@@ -2,8 +2,8 @@
 
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
-| `[CFG]` | `bitsavers/HP-Apollo_Products_Configuration_Guide_Dec89.pdf` | 383 | born-digital, moderate OCR damage | **IN PROGRESS** — the Series 3500 pages read, the other model sections owed |
-| `[CFG]` | `bitsavers/5952-2149_Apollo_Quick-Reference_Configuration_Guide_Jul90.pdf` | 88 | born-digital | **owed** |
+| `[CFG]` | `bitsavers/HP-Apollo_Products_Configuration_Guide_Dec89.pdf` | 383 | born-digital, moderate OCR damage | **READ ON ITS OWN TERMS, 2026-09-15** — every model's description and option pages and Section H as images; the rest identified by heading and not hardware-bearing. *Was "IN PROGRESS — the Series 3500 pages read, the other model sections owed"* |
+| `[CFG]` | `bitsavers/5952-2149_Apollo_Quick-Reference_Configuration_Guide_Jul90.pdf` | 88 | born-digital | **descriptive pages 3-14 and matrices 67-70 read as images, 2026-09-15**; the rest software ordering tables. *Was "owed"* |
 
 **December 1989, and the model table has been citing it since Phase 5 without
 anyone reading it.** `ap_model.c` attributes memory ranges, displays, clock
@@ -125,12 +125,48 @@ The reference machine's own ordering pages, mono and colour, at 300 dpi.
 
 **No value changes.** One comment corrected to say which year the row describes.
 
+## The Series 2500, Model 3550 and Series 4500 option pages read as images (2026-09-15)
+
+| Page | Content | Against this core |
+| --- | --- | --- |
+| D-6 | Series 2500 options: H01-H04 4-16 MB, A-ADD-4MB-C and 8MB-C add-on memory, an internal 200 MB SCSI disk, external SCSI floppy, cartridge, 8 mm and 660 MB modules, SR10 support kit "required for all DN2500s" | the `DN2500` row's 16 MB ceiling |
+| D-7 | **SCSI notes**: up to seven devices, internal disks counted; **one** Apollo cartridge drive, **one** floppy, **five** mountable disks, **two** 8 mm drives; cables within 6 m by the specification and 4.6 m recommended | none -- no DN2500 SCSI bus is modelled; recorded for when one is |
+| D-79, D-80, D-88, D-89 | Model 3550 mono and colour: **H02 8 MB and H04 16 MB base only**; add-on memory sold **in pairs** -- "8-MB Add-on memory boards (2 4-MB boards)", "16-MB (2 8-MB boards)"; SWFC on a rev 9 CPU; colour FC1/FC2 need DE0 only (no DC0), FC4 needs DA0 **or DB0** | the pairs rule is `5952-2149` p. 8's "an odd number of 4MB modules may only be used in the Series 3500" from the ordering side; `ap_sio.c`'s strap table carries the odd layouts because the firmware decodes them |
+| D-110, D-111, D-118, D-119 | Series 4500 mono and colour: the same H02/H04, the same paired add-ons, **A-ADD-SWFC "DN4500 with rev 5 (or greater) CPU"**; FC2 "60-Hz", FC3 "68-Hz", FC4 "70-Hz"; K08 a 40-plane credit | a different board with its own revision count, as `board_of` already says |
+
+**No value changes.** Every Series 3000/3500/4500 option page is now read.
+
+## Section H, *Hardware Upgrades*, pp. H-1..H-29 read as images (2026-09-15)
+
+At 200 dpi, which resolves every table. H-22 and H-23 (the rest of the Domain
+5080 emulator, cables and remote systems) are passed over on their headings.
+
+| Page | Content | Against this core |
+| --- | --- | --- |
+| H-4 | **U33010, "Upgrades a DN3000 to a DN3010: minimum operating sys revision SR9.5 or SR9.7 to utilize 256K [sic] virtual memory"**; U335-x-x DN3000/3010/3010A to DN3500, "Single Apollo Token Ring board or ETHERNET controller", an A-ADD-WFC-D included | **a fourth statement on the `dn3000` MMU question** (`008778-03_WALK.md`): SR9.7 gives 256 MB to PMMU hardware and 64 MB to DMMU, so the DN3010 is the PMMU machine and a plain DN3000 is not. Recorded in the `dn3000` row's comment and left open, not marked `provisional`: `model_suite` forbids that on a model with a runnable oracle, and the oracle is where the 68851 comes from |
+| H-5..H-9 | DN3000-family to DN3550/DN4500 swaps (A-ADD-SWFC included; "72MB or 348MB slow actuator disk do not work"); U35545 DN3550 to DN4500 **CPU board**; DN4000 to DN4500 with **"Apollo Token Ring network board must be at Rev. 6 or greater"**; U3500-4500 "(Non SCSI)" | a DN3550 and a DN4500 differ by the CPU board, as `board_of` has them; the ring board revision is a card this core models as one part |
+| H-10 | DN3000 to DN2500 whole-system swaps | none |
+| H-11, H-12 | memory upgrades in 8 MB pairs; ESDI and ESDI-SCSI disk kits by CPU revision (DN3000/DN4000 rev 25, DN3500/3550 rev 9, DN4500 rev 5); the 697 MB module; **UTCSTC and UFLPSTC replace the cartridge or the floppy with a SCSI cartridge, SR10.1** | H-29 names the older drive the **"ST506 TAPE CARTRIDGE"** -- the `ap_sc499` QIC-02 card's drive by Apollo's own label |
+| H-13..H-15 | SCSI controller conversion; DN10000; graphics upgrades between DLO/DMO/DCO/DEO/DFO and the DVS boards, "Controller Board Uses 2 System Board Slots" | the DVS as a two-slot board, beside `5952-2149` p. 10's HSI ribbon |
+| H-16, H-17 | **"Upgrades a Domain Series 3000 with a dual board Apollo Token Ring controller to ... a single board Apollo Token Ring controller"** (UETHATR, UATR, "AT BUS ATR (2 BOARD)"); IBM Token Ring kits by CPU revision | a further witness to `RING.md` 136d's two-board/one-board split on the AT bus |
+| H-18..H-21 | mature products (DN300, DN5xx, DSP80/90, DN460/660) and the 5080 emulator | none |
+| H-24 | national versions ABA-ABZ, "* available with Multinational Keyboard" | none |
+| H-25..H-29 | the upgrade product matrix restating all of the above | agrees with the pages it summarises |
+
+**No value changes.** One open question sharpened.
+
 ## What is owed
 
-*The model description blocks, then `5952-2149`'s descriptive pages and matrices,
-then the Series 3500 option pages, were read next (above).* The Product Summary
+*The model description blocks, `5952-2149`'s descriptive pages and matrices,
+every workstation's option pages and Section H were read next (above).*
+
+**Nothing hardware-bearing.** What is not read as images is the Series 10000
+(PRISM) section, which no row models; the option and power pages of the servers
+and of the 3010A, 3040 and 3540, which have no rows; the software ordering
+sections; and `5952-2149`'s software and license tables. Each was identified by
+its headings in the page map. *The list this replaced*: "The Product Summary
 option pages beyond those cited, the Series 10000 section, the upgrade matrices
-(pp. 331-358), and the 88-page July 1990 quick reference. *This said "The Series
+(pp. 331-358), and the 88-page July 1990 quick reference." *And before that it said "The Series
 3000, 4000, 4500, 3010A and Model 3550 sections, the upgrade matrices (pp.
 331-358), and the 88-page July 1990 quick reference."* **Every model section
 should be read the way this one was**: description block, then options, then

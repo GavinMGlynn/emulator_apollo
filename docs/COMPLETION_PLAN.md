@@ -4714,6 +4714,12 @@ substance. They are the only items here with no route that is simply work.
       clock-select table, the DN300's MSB-first node ID lanes -- plus
       siomonit's unrecorded 15-second removal rule (`002398-01_WALK.md`).
       *Until then: "Chapters 1-5 and 7 are owed as images."*
+      **`[CFG]` and its July 1990 quick reference are read on their own terms
+      (2026-09-15)**: every model's description and option pages and the
+      upgrade section as images. Two page citations corrected (the overview
+      table is A-12, the DN4500 summary D-109), `HSI Present` marked
+      `PROVISIONAL`, the `dn3000` 68851 question sharpened -- p. H-4 makes the
+      PMMU the DN3010 upgrade -- and no value changed (`CFG_WALK.md`).
       **14 of the 96 remain untouched**, and the rest are settled with their
       evidence: a second triage pass extracted **every remaining document's
       hardware-term matches with their context and read them**, which changed
