@@ -894,3 +894,42 @@ rather than the cause: `ALIGNMENT_INVARIANT`.
 **Two rows still decline**, both for one reason: `LINK.L` and `Bcc.L` untaken
 are three words, where the alignments genuinely differ by one fetch and the
 published pair admits several splits. They are the whole remaining gap.
+
+## §11.3.3's figures per instruction, and which alignment pays (stage 8)
+
+Figures 11-4 and 11-5, read as page images (pp. 11-9, 11-10), are the only
+per-alignment, per-instruction figures in the chapter. They settle what
+`ODD_WORDS` had answered by argument.
+
+| Instruction, three words each | Even alignment (Figure 11-4) | Odd alignment (Figure 11-5) |
+| --- | --- | --- |
+| `MOVE.L (d16,An,Dn),Dn` | 2 prefetches, **8** clocks | 1 prefetch, **10** clocks |
+| `CMPI.W #(data).W,(d16,An)` | 1 prefetch, **8** clocks | 2 prefetches, **6** clocks |
+
+**The instruction with fewer prefetches is the dearer one**, in both rows. The
+class's derivation above said the larger case is twice the difference and
+charged it on the run that took the extra fetch: every figure the wrong way
+round. The averages are the same either way, and every check this project had
+was an average, which is how it stood. It is now charged on the run with fewer.
+
+**And both instructions' differences are their address rows'.** `MOVE EA,Dn` is
+2 and 2, §11.6.1's full-format `(d16,An)` 6 and 7; `CMPI #<data>,Mem` is 2 and
+2, §11.6.2's `#<data>.W,(d16,An)` 4 and 5. The step took the operation's
+difference alone, zero for both, and the class from the operation's row,
+`SINGLE_WORD` for the `MOVE`, so it charged the `MOVE`'s second fetch as a
+refill. It came to 12 and 6, then 8 and 10: 18 a pair against the page's 16.
+
+With the no-cache case composed by §11.3.3's addition, the class taken from the
+words the run occupied and the odd-word case charged on the fewer-fetch run, the
+core produces all four figures, and `machine_suite` asserts them.
+
+**The residual, recorded.** A composition whose cache case saves overlap loses
+it in the no-cache case ("the no-cache-case times assume no overlap"), and the
+loss is charged with the exposure, on the run that fetched. A one-word
+`MOVE (A0),(A1)` -- cache case 6 with one clock of overlap, no-cache case 8 --
+exposes 4 on its fetching run rather than 2. Its average is the page's; how the
+loss divides between the alignments, no figure shows.
+
+*Correction to the section above: "`LINK.L` and `Bcc.L` untaken ... are the
+whole remaining gap" stopped being true when `ODD_WORDS` priced them, and the
+pricing it gave them was reversed until this stage.*

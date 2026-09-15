@@ -230,9 +230,16 @@ typedef enum {
   /* An odd word count of three or more, where the two alignments differ by one
    * fetch: three words want a fetch at 0 and one at 4 when aligned, and only
    * one at 4 when not. The published difference is therefore an average of two
-   * unequal cases again, exactly as for a single word -- so the larger case is
-   * twice it, and the smaller is free. `LINK.L` and `Bcc.L` untaken are the
-   * two rows.
+   * unequal cases again, exactly as for a single word -- so one case is twice
+   * it and the other is free.
+   *
+   * **Which case pays is §11.3.3's, and it is the run with fewer fetches.**
+   * Figures 11-4 and 11-5 draw a three-word `MOVE.L (d16,An,Dn),Dn` at both
+   * alignments: two prefetches and 8 clocks at even alignment, one prefetch
+   * and 10 clocks at odd. The three-word `CMPI.W` after it is one prefetch and
+   * 8 clocks, then two and 6. Until 2026-09-15 this charged the run with *more*
+   * fetches, which was argued rather than read and put all four figures the
+   * wrong way round; the averages were unaffected, so no check saw it.
    *
    * Unlike `SINGLE_WORD` the caller cannot tell the cases apart by "did a
    * prefetch happen", since both run one; it has to compare the *count*. */
@@ -253,7 +260,7 @@ typedef enum {
  *                                                     odd case, which is zero
  *   ALIGNMENT_INVARIANT  exposure =    NCC - CC   -- no averaging to undo
  *   ODD_WORDS            exposure = 2 (NCC - CC)  -- charged only on the run
- *                                                    that took the extra fetch
+ *                                                    that took fewer fetches
  *   UNKNOWN              exposure = 0, declined
  *
  * For `SINGLE_WORD` the answer comes to 0 or 2 -- such a prefetch either hides
@@ -279,6 +286,25 @@ typedef enum {
  * withdrawn. */
 [[nodiscard]] unsigned ap_m68030_prefetch_exposure(
     const ap_m68030_timing_t *timing, ap_m68030_prefetch_class_t klass);
+
+/* The class an instruction's length gives it, by the fetch counts above: one
+ * word is `SINGLE_WORD`, an even count `ALIGNMENT_INVARIANT`, an odd count of
+ * three or more `ODD_WORDS`. `UNKNOWN` for zero. A change of flow is not a
+ * length and keeps its row's class. */
+[[nodiscard]] ap_m68030_prefetch_class_t
+ap_m68030_prefetch_class_for_words(unsigned words);
+
+/* What one run's prefetches cost, from the instruction bus it measured.
+ *
+ * Nothing when nothing was fetched, which is the cache case. More than the
+ * instruction's own words can need -- two clocks per two words, rounded up --
+ * is a refill after a change of flow, charged at what it measured. Otherwise
+ * the exposure, except that an `ODD_WORDS` run that took its larger count of
+ * fetches pays nothing: §11.3.3's figures put the alignment's cost on the run
+ * with fewer. */
+[[nodiscard]] unsigned ap_m68030_prefetch_charge(
+    const ap_m68030_timing_t *timing, ap_m68030_prefetch_class_t klass,
+    unsigned words, unsigned instruction_bus);
 
 /* "The total overlap time between instructions A and B consists of the lesser
  * of the tail of instruction A or the head of instruction B." */

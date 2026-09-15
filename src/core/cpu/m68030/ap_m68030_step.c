@@ -2785,14 +2785,9 @@ row_ea_timing(const ap_m68030_table_entry_t *row, uint16_t instruction,
  * writes". The bus itself is what the core measured. */
 static uint32_t row_microcode(const ap_m68030_table_entry_t *row,
                               const ap_m68030_ea_timing_t *ea) {
-  ap_m68030_overlap_state_t composed = ap_m68030_overlap_begin();
-  ap_m68030_ea_timing_compose(&composed, ea, &row->timing);
-  unsigned published_bus = (row->timing.reads + row->timing.writes) * 2u;
-  if (ea != nullptr) {
-    published_bus += (ea->timing.reads + ea->timing.writes) * 2u;
-  }
-  const uint64_t total = ap_m68030_overlap_total(&composed);
-  return total > published_bus ? (uint32_t)(total - published_bus) : 0u;
+  const ap_m68030_timing_t composed =
+      ap_m68030_ea_timing_composed(ea, &row->timing);
+  return ap_m68030_microcode_clocks(&composed);
 }
 
 /* What §11.6.17 charges for an exception beyond the bus it publishes: the row's
@@ -8251,37 +8246,31 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * that ran entirely under the microcode; two is one that hid behind
      * nothing. `ap_m68030_prefetch_exposure` and its test carry the reasoning
      * and the rows it cannot apply to. */
-    /* ...and only for *one* prefetch, which is what a row's published
-     * difference is about: the cycle that keeps a full pipe full. An
-     * instruction that ran more than one is refilling a pipe some change of
-     * flow emptied, and §11.6 charges that refill to the branch -- `Bcc`
-     * taken is 6 clocks against an untaken byte branch's 4 for exactly that
-     * reason. This core cannot move the cost to the branch, so it charges the
-     * refill where it happens, at what it measured. That is the same
-     * convention as declining an unknown: report the measurement rather than
-     * substitute a figure derived for something else.
+    /* ...and only for the instruction's *own* fetches, which is what a row's
+     * published difference is about. An instruction that ran more is refilling
+     * a pipe some change of flow emptied, and §11.6 charges that refill to the
+     * branch -- `Bcc` taken is 6 clocks against an untaken byte branch's 4 for
+     * exactly that reason. This core cannot move the cost to the branch, so it
+     * charges the refill where it happens, at what it measured.
      *
-     * Without this the refill would vanish entirely -- the target instruction
-     * would discard it in favour of its own exposure, and the branch that
-     * caused it is a change of flow, whose class is UNKNOWN and declines. */
-    const uint32_t one_bus_cycle = 2u;
-    uint32_t prefetch_cost = instruction_bus;
-    if (published->prefetch_class == AP_M68030_PREFETCH_ODD_WORDS) {
-      /* Three words: both alignments run a fetch, and it is the *count* that
-       * differs -- two when aligned, one when not. So the published average is
-       * undone by charging the larger case and nothing for the smaller, which
-       * is why this cannot go through the "did a prefetch happen" test below. */
-      prefetch_cost = instruction_bus > one_bus_cycle
-                          ? ap_m68030_prefetch_exposure(
-                                &published->timing, published->prefetch_class)
-                          : 0u;
-    } else if (instruction_bus <= one_bus_cycle) {
-      prefetch_cost =
-          instruction_bus > 0u
-              ? ap_m68030_prefetch_exposure(&published->timing,
-                                            published->prefetch_class)
-              : 0u;
-    }
+     * **The difference is the composed instruction's, and the class is the
+     * run's.** Until stage 8 both came from the operation's row alone, so an
+     * address row's own no-cache difference was never charged -- §11.3.3's
+     * `MOVE.L (d16,An,Dn),Dn` and `CMPI.W #,(d16,An)` came to 18 clocks a pair
+     * against its 16 -- and a three-word instruction whose row is `SINGLE_WORD`
+     * had its second fetch charged as a refill. §11.3.3 composes the no-cache
+     * column by addition, and the class follows from the words this run
+     * occupied. A change of flow keeps its row's class and counts one word,
+     * since what it fetched is the refill at its target. */
+    const ap_m68030_timing_t composed =
+        ap_m68030_ea_timing_composed(ea_timing, &published->timing);
+    const bool refills = changes_flow(&decoded, out.branch_taken, false);
+    const unsigned words = refills ? 1u : 1u + cpu->extension_words;
+    const ap_m68030_prefetch_class_t klass =
+        refills ? published->prefetch_class
+                : ap_m68030_prefetch_class_for_words(words);
+    const uint32_t prefetch_cost =
+        ap_m68030_prefetch_charge(&composed, klass, words, instruction_bus);
 
     out.clocks = microcode + operand_bus + prefetch_cost;
 

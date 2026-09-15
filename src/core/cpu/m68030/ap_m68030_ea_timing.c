@@ -834,6 +834,24 @@ void ap_m68030_ea_timing_compose(ap_m68030_overlap_state_t *state,
   ap_m68030_overlap_add(state, operation);
 }
 
+ap_m68030_timing_t
+ap_m68030_ea_timing_composed(const ap_m68030_ea_timing_t *ea,
+                             const ap_m68030_timing_t *operation) {
+  ap_m68030_overlap_state_t state = ap_m68030_overlap_begin();
+  ap_m68030_ea_timing_compose(&state, ea, operation);
+
+  ap_m68030_timing_t out = *operation;
+  out.cache_case = (unsigned)ap_m68030_overlap_total(&state);
+  if (ea != nullptr && ea->head_applies) {
+    out.head = ap_m68030_ea_timing_head(ea, operation->head);
+    out.no_cache_case += ea->timing.no_cache_case;
+    out.reads += ea->timing.reads;
+    out.writes += ea->timing.writes;
+    out.prefetches += ea->timing.prefetches;
+  }
+  return out;
+}
+
 const ap_m68030_ea_timing_t *
 ap_m68030_ea_fetch_timing(ap_m68030_ea_kind_t kind, unsigned operand_size) {
   switch (kind) {

@@ -892,6 +892,38 @@ static void test_the_index_moves_one_head_and_the_readings_hold(void) {
       1u, ap_m68030_ea_calculate_immediate_timing_full(&b_od_word, true)->timing.reads);
 }
 
+/* §11.3.3 composes its example's no-cache figures by addition: the `MOVE`'s is
+ * "2 + 7 = 9 clocks", §11.6.6's `MOVE EA,Dn` and §11.6.1's full-format
+ * `(d16,An)`, and the `CMPI`'s seven. The cache case composes through Equation
+ * (11-2) as ever. Until stage 8 the step charged only the operation's half of
+ * the difference, and both of these operations have none. */
+static void test_a_composed_no_cache_case_is_the_sum_of_its_rows(void) {
+  const ap_m68030_extension_t index = ap_m68030_ea_decode_extension(0x0920u);
+  const ap_m68030_ea_timing_t *source = ap_m68030_ea_fetch_timing_full(&index);
+  const ap_m68030_table_entry_t *move = ap_m68030_timing_for_word(0x2230u);
+  TEST_ASSERT_NOT_NULL(source);
+  TEST_ASSERT_NOT_NULL(move);
+  const ap_m68030_timing_t moved = ap_m68030_ea_timing_composed(source, &move->timing);
+  TEST_ASSERT_EQUAL_UINT(8u, moved.cache_case);
+  TEST_ASSERT_EQUAL_UINT(9u, moved.no_cache_case);
+
+  const ap_m68030_ea_timing_t *destination =
+      ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_DISPLACEMENT, false);
+  const ap_m68030_table_entry_t *cmpi = ap_m68030_timing_for_word(0x0C68u);
+  TEST_ASSERT_NOT_NULL(destination);
+  TEST_ASSERT_NOT_NULL(cmpi);
+  const ap_m68030_timing_t compared =
+      ap_m68030_ea_timing_composed(destination, &cmpi->timing);
+  TEST_ASSERT_EQUAL_UINT(6u, compared.cache_case);
+  TEST_ASSERT_EQUAL_UINT(7u, compared.no_cache_case);
+
+  /* A register operand adds nothing to either column. */
+  const ap_m68030_timing_t alone = ap_m68030_ea_timing_composed(
+      ap_m68030_ea_fetch_timing(AP_M68030_EA_DATA_REGISTER, 4u), &move->timing);
+  TEST_ASSERT_EQUAL_UINT(move->timing.cache_case, alone.cache_case);
+  TEST_ASSERT_EQUAL_UINT(move->timing.no_cache_case, alone.no_cache_case);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_every_full_format_word_has_a_row_in_every_table);
@@ -927,5 +959,6 @@ int main(void) {
   RUN_TEST(test_an_immediate_has_no_address_to_calculate);
   RUN_TEST(test_only_the_long_absolute_differs_between_the_columns);
   RUN_TEST(test_every_row_is_internally_consistent);
+  RUN_TEST(test_a_composed_no_cache_case_is_the_sum_of_its_rows);
   return UNITY_END();
 }

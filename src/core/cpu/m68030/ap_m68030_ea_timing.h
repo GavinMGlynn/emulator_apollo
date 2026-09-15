@@ -188,4 +188,13 @@ void ap_m68030_ea_timing_compose(ap_m68030_overlap_state_t *state,
                                  const ap_m68030_ea_timing_t *ea,
                                  const ap_m68030_timing_t *operation);
 
+/* One instruction as a single row: the cache case composed as above, and the
+ * no-cache case by §11.3.3's plain addition -- "2 + 7 = 9 clocks" for its
+ * `MOVE.L (d16,An,Dn),Dn`, the operation's figure and its address's with no
+ * overlap term. Reads, writes and prefetches are summed and the head resolved.
+ * `ea` may be NULL, and a register row adds nothing, as in the composition. */
+[[nodiscard]] ap_m68030_timing_t
+ap_m68030_ea_timing_composed(const ap_m68030_ea_timing_t *ea,
+                             const ap_m68030_timing_t *operation);
+
 #endif /* APOLLO_CPU_M68030_AP_M68030_EA_TIMING_H */

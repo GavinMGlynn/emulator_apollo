@@ -93,14 +93,44 @@ unsigned ap_m68030_prefetch_exposure(const ap_m68030_timing_t *timing,
     /* Both alignments run the same fetches, so nothing was averaged. */
     return difference;
   case AP_M68030_PREFETCH_ODD_WORDS:
-    /* As SINGLE_WORD: the two alignments differ by one fetch, so the larger
-     * case is twice the published average. The caller decides which case this
-     * run was by counting fetches, not by whether one happened. */
+    /* As SINGLE_WORD: the two alignments differ by one fetch, so the dearer
+     * case is twice the published average -- and by §11.3.3's figures the
+     * dearer case is the one with fewer fetches. `ap_m68030_prefetch_charge`
+     * decides which case a run was by counting fetches, not by whether one
+     * happened. */
     return difference * 2u;
   case AP_M68030_PREFETCH_UNKNOWN:
     break;
   }
   return 0u;
+}
+
+ap_m68030_prefetch_class_t ap_m68030_prefetch_class_for_words(unsigned words) {
+  if (words == 0u) {
+    return AP_M68030_PREFETCH_UNKNOWN;
+  }
+  if (words == 1u) {
+    return AP_M68030_PREFETCH_SINGLE_WORD;
+  }
+  return (words % 2u) == 0u ? AP_M68030_PREFETCH_ALIGNMENT_INVARIANT
+                            : AP_M68030_PREFETCH_ODD_WORDS;
+}
+
+unsigned ap_m68030_prefetch_charge(const ap_m68030_timing_t *timing,
+                                   ap_m68030_prefetch_class_t klass,
+                                   unsigned words, unsigned instruction_bus) {
+  if (instruction_bus == 0u) {
+    return 0u;
+  }
+  /* A fetch serves a long word, so n words need at most ceil(n/2) fetches. */
+  const unsigned own = BUS_CYCLE_CLOCKS * ((words + 1u) / 2u);
+  if (instruction_bus > own) {
+    return instruction_bus;
+  }
+  if (klass == AP_M68030_PREFETCH_ODD_WORDS && instruction_bus == own) {
+    return 0u;
+  }
+  return ap_m68030_prefetch_exposure(timing, klass);
 }
 
 uint64_t ap_m68030_no_cache_total(const ap_m68030_timing_t *components,

@@ -1059,8 +1059,7 @@ static void test_mode_six_is_priced_by_its_extension_word_on_a_machine(void) {
  * not, so an in-bounds `CHK2` went unpriced whatever its lookup's test said.
  * Warm, each composes with §11.6.2's `#<data>.W,(An)` (`3(1/0/0)`, head 1,
  * tail 1): `CHK2` to 20 and `CMP2` to 22, the bounds pair at `(A0)` being two
- * reads. Cold is not checked: the address row's own no-cache difference is not
- * in the step's prefetch exposure, which is a named gap. */
+ * reads. Cold is the next test's, checkable since stage 8. */
 static void test_chk2_and_cmp2_are_told_apart_by_their_extension_word(void) {
   static const struct {
     uint16_t extension;
@@ -3189,6 +3188,113 @@ static void test_cpu_space_for_another_coprocessor_is_not_the_68882(void) {
                                            AP_M68882_DEFAULT_CPID));
 }
 
+/* `CHK2` and `CMP2` cold, which stage 8 made checkable: §11.6.2's
+ * `#<data>.W,(An)` is 3 cached and 4 uncached, and until then the step charged
+ * none of that difference. Two words is one fetch at either alignment, so every
+ * run costs the average -- the composed no-cache case, by §11.3.3's addition. */
+static void test_chk2_and_cmp2_come_to_their_composed_no_cache_case_cold(void) {
+  static const struct {
+    uint16_t extension;
+    const char *form;
+  } CASES[] = {{0x0800u, "CHK2 Mem,Rn (No Exception)"},
+               {0x0000u, "CMP2 EA,Rn"}};
+
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_selected(0x02D0u, CASES[c].extension, false);
+    TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[c].form);
+    const ap_m68030_timing_t composed = ap_m68030_ea_timing_composed(
+        ap_m68030_ea_fetch_immediate_timing(AP_M68030_EA_ADDRESS_INDIRECT, false),
+        &row->timing);
+
+    blank();
+    ap_machine_t m;
+    ap_machine_init(&m, ram, RAM_BYTES);
+    ap_machine_reset(&m, PROGRAM, STACK);
+    write_cacr(&m, CACR_EI);
+    for (unsigned i = 0; i < 8u; i++) {
+      TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 4u * i, 2u, 0x02D0u));
+      TEST_ASSERT_TRUE(
+          ap_machine_write(&m, PROGRAM + 4u * i + 2u, 2u, CASES[c].extension));
+    }
+    m.cpu.regs.a[0] = 0x00004000u;
+
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_machine_step(&m).status);
+    uint64_t previous = m.cpu.clocks;
+    uint64_t total = 0;
+    for (unsigned i = 0; i < 4u; i++) {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED,
+                                    ap_machine_step(&m).status, CASES[c].form);
+      total += m.cpu.clocks - previous;
+      previous = m.cpu.clocks;
+    }
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(composed.no_cache_case, (total + 3u) / 4u,
+                                     CASES[c].form);
+  }
+}
+
+/* **§11.3.3's worked example on a running machine, one instruction at a
+ * time.** `MOVE.L (d16,An,Dn),Dn` then `CMPI.W #(data).W,(d16,An)`, both
+ * caches missing, laid at even and at odd alignment in 32-bit memory. Figure
+ * 11-4 gives 8 and 8, Figure 11-5 10 and 6, "16 clocks for both even and odd
+ * alignment". The index is D0 as a long in a full-format extension word, the
+ * form the page's `d16` needs.
+ *
+ * Before stage 8 this core fetched exactly as the figures draw -- two and one
+ * at even alignment, one and two at odd -- and charged 12 and 6, then 8 and
+ * 10: 18 a pair, the address rows' no-cache differences uncharged and each
+ * second fetch taken for a refill. */
+static void test_the_alignment_example_costs_its_figures_per_instruction(void) {
+  static const struct {
+    unsigned nops;
+    uint64_t move;
+    uint64_t cmpi;
+    const char *what;
+  } CASES[] = {
+      {4u, 8u, 8u, "even alignment, Figure 11-4"},
+      {5u, 10u, 6u, "odd alignment, Figure 11-5"},
+  };
+  static const uint16_t STREAM[] = {
+      0x2230u, 0x0920u, 0x0010u, /* MOVE.L (16,A0,D0.L),D1 */
+      0x0C68u, 0x1234u, 0x0020u, /* CMPI.W #$1234,(32,A0) */
+      0x4E71u, 0x4E71u,
+  };
+
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    blank();
+    ap_machine_t m;
+    ap_machine_init(&m, ram, RAM_BYTES);
+    ap_machine_reset(&m, PROGRAM, STACK);
+    write_cacr(&m, CACR_EI);
+    unsigned at = 0;
+    for (unsigned i = 0; i < CASES[c].nops; i++) {
+      TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 2u * at++, 2u, 0x4E71u));
+    }
+    for (unsigned i = 0; i < sizeof STREAM / sizeof STREAM[0]; i++) {
+      TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 2u * at++, 2u, STREAM[i]));
+    }
+    m.cpu.regs.a[0] = 0x00004000u;
+    m.cpu.regs.d[0] = 0u;
+
+    for (unsigned i = 0; i < CASES[c].nops; i++) {
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED,
+                                    ap_machine_step(&m).status, CASES[c].what);
+    }
+    uint64_t before = m.cpu.clocks;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED,
+                                  ap_machine_step(&m).status, CASES[c].what);
+    const uint64_t move = m.cpu.clocks - before;
+    before = m.cpu.clocks;
+    TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED,
+                                  ap_machine_step(&m).status, CASES[c].what);
+    const uint64_t cmpi = m.cpu.clocks - before;
+
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(CASES[c].move, move, CASES[c].what);
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(CASES[c].cmpi, cmpi, CASES[c].what);
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(16u, move + cmpi, CASES[c].what);
+  }
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_interval_timer_agrees_with_the_machines_own_clock);
@@ -3267,5 +3373,7 @@ int main(void) {
   RUN_TEST(test_a_cpu_space_read_reaches_the_coprocessor);
   RUN_TEST(test_the_same_address_as_data_is_not_the_coprocessor);
   RUN_TEST(test_cpu_space_for_another_coprocessor_is_not_the_68882);
+  RUN_TEST(test_chk2_and_cmp2_come_to_their_composed_no_cache_case_cold);
+  RUN_TEST(test_the_alignment_example_costs_its_figures_per_instruction);
   return UNITY_END();
 }

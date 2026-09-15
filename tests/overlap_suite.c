@@ -269,8 +269,8 @@ static void test_the_no_cache_case_takes_no_overlap(void) {
  * it, and the published 9 is a number that instruction never takes. This
  * asserts the relationship the numbers must satisfy -- the average of the two
  * alignment cases is the published figure, and the pair is alignment-invariant
- * -- so that the shape of the check on this core is pinned even before it can
- * produce the figures. Our own core exhibits exactly this alternation
+ * -- so that the shape of the check on this core is pinned; since stage 8
+ * `machine_suite` runs the example and produces the figures. Our own core exhibits exactly this alternation
  * (`FINDINGS.md` C7), which is why a per-instruction comparison against a
  * published NCC is the wrong comparison and a sequence is the right one. */
 static void test_the_published_figure_is_the_mean_of_two_alignments(void) {
@@ -284,6 +284,55 @@ static void test_the_published_figure_is_the_mean_of_two_alignments(void) {
   TEST_ASSERT_EQUAL_UINT(7u, (cmpi_even + cmpi_odd) / 2u);
   TEST_ASSERT_EQUAL_UINT(16u, even + cmpi_even);
   TEST_ASSERT_EQUAL_UINT(16u, odd + cmpi_odd);
+}
+
+/* The class a run's length gives it, by the fetch counts in the header: one
+ * word, an even count, an odd count of three or more. */
+static void test_an_instruction_is_classed_by_the_words_it_occupies(void) {
+  TEST_ASSERT_EQUAL_INT(AP_M68030_PREFETCH_UNKNOWN,
+                        ap_m68030_prefetch_class_for_words(0u));
+  TEST_ASSERT_EQUAL_INT(AP_M68030_PREFETCH_SINGLE_WORD,
+                        ap_m68030_prefetch_class_for_words(1u));
+  for (unsigned words = 2u; words <= 6u; words += 2u) {
+    TEST_ASSERT_EQUAL_INT(AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+                          ap_m68030_prefetch_class_for_words(words));
+  }
+  for (unsigned words = 3u; words <= 5u; words += 2u) {
+    TEST_ASSERT_EQUAL_INT(AP_M68030_PREFETCH_ODD_WORDS,
+                          ap_m68030_prefetch_class_for_words(words));
+  }
+}
+
+/* Figures 11-4 and 11-5 one instruction at a time. `MOVE.L (d16,An,Dn),Dn`
+ * composes to 8 cached and "2 + 7 = 9" uncached, and is three words: two
+ * prefetches and 8 clocks at even alignment, one and 10 at odd. So the
+ * exposure falls on the run with *fewer* fetches -- the reverse of what this
+ * charged until stage 8 -- and more than the words can need is a refill. */
+static void test_an_odd_word_run_pays_only_when_it_fetched_less(void) {
+  const ap_m68030_timing_t move = {.head = 2, .tail = 0, .cache_case = 8,
+                                   .no_cache_case = 9, .reads = 1,
+                                   .prefetches = 2};
+  const ap_m68030_prefetch_class_t odd = AP_M68030_PREFETCH_ODD_WORDS;
+  TEST_ASSERT_EQUAL_UINT(0u, ap_m68030_prefetch_charge(&move, odd, 3u, 0u));
+  TEST_ASSERT_EQUAL_UINT(0u, ap_m68030_prefetch_charge(&move, odd, 3u, 4u));
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68030_prefetch_charge(&move, odd, 3u, 2u));
+  TEST_ASSERT_EQUAL_UINT(6u, ap_m68030_prefetch_charge(&move, odd, 3u, 6u));
+
+  /* The other classes keep their rules: a single word pays twice its
+   * difference when it fetched, an even count its difference either way. */
+  const ap_m68030_timing_t add = {.head = 0, .tail = 1, .cache_case = 6,
+                                  .no_cache_case = 7, .reads = 1, .writes = 1,
+                                  .prefetches = 1};
+  const ap_m68030_prefetch_class_t single = AP_M68030_PREFETCH_SINGLE_WORD;
+  TEST_ASSERT_EQUAL_UINT(0u, ap_m68030_prefetch_charge(&add, single, 1u, 0u));
+  TEST_ASSERT_EQUAL_UINT(2u, ap_m68030_prefetch_charge(&add, single, 1u, 2u));
+  TEST_ASSERT_EQUAL_UINT(4u, ap_m68030_prefetch_charge(&add, single, 1u, 4u));
+
+  const ap_m68030_timing_t four = {.cache_case = 10, .no_cache_case = 11,
+                                   .prefetches = 2};
+  const ap_m68030_prefetch_class_t even = AP_M68030_PREFETCH_ALIGNMENT_INVARIANT;
+  TEST_ASSERT_EQUAL_UINT(1u, ap_m68030_prefetch_charge(&four, even, 4u, 4u));
+  TEST_ASSERT_EQUAL_UINT(6u, ap_m68030_prefetch_charge(&four, even, 4u, 6u));
 }
 
 int main(void) {
@@ -303,5 +352,7 @@ int main(void) {
   RUN_TEST(test_bus_time_beyond_the_microcode_is_what_costs);
   RUN_TEST(test_a_long_instruction_hides_its_whole_fetch);
   RUN_TEST(test_an_untranscribed_instruction_is_its_bus_time);
+  RUN_TEST(test_an_instruction_is_classed_by_the_words_it_occupies);
+  RUN_TEST(test_an_odd_word_run_pays_only_when_it_fetched_less);
   return UNITY_END();
 }

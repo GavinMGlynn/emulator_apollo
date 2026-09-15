@@ -4504,9 +4504,14 @@ discipline throughout.
   **Stage 7**: the full-format rows of §11.6.2, §11.6.4 and §11.6.5, every
   address now priced by its own row. **Next**: the address rows' own no-cache
   difference in the prefetch exposure, the last owed part of §11.6.
-  **Owed**: the address rows' own no-cache difference in the prefetch exposure.
+  **Stage 8**: the prefetch exposure by the composed instruction's no-cache
+  difference and the run's own length, `ODD_WORDS` charged on the run with
+  fewer fetches — §11.3.3's Figures 11-4/11-5, whose four per-instruction
+  figures now come out on a running machine. **Next**: §11.6.12's `LSd Dx,Dy`
+  and `ASR Dx,Dy`, found unpriced; stage 7's "last owed part" had missed them.
+  **Owed**: §11.6.12's `LSd Dx,Dy` and `ASR Dx,Dy`, count-dependent (`%`/`+`).
   *(Before stage 4b this also named
-  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17; before 5c, §11.6.18; before 5d, `CHK`/`CHK2`; before 5e, `MOVEM`; before 5f, the long multiplies and divides; before 6, §11.6.6's mode-6 destinations; before 7, the full-format rows of §11.6.2, §11.6.4 and §11.6.5.)*
+  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17; before 5c, §11.6.18; before 5d, `CHK`/`CHK2`; before 5e, `MOVEM`; before 5f, the long multiplies and divides; before 6, §11.6.6's mode-6 destinations; before 7, the full-format rows of §11.6.2, §11.6.4 and §11.6.5; before 8, the address rows' own no-cache difference in the prefetch exposure.)*
   *(Before stage 4a this list also named §11.6.7, §11.6.16's rest and "the
   §11.6.4 (calculate immediate) and §11.6.5 (jump) tables, which do not exist
   in the code".)*
