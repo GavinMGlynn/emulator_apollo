@@ -4708,6 +4708,12 @@ substance. They are the only items here with no route that is simply work.
       three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
       DS5500 already has — dumps exactly those records. That is the cheapest next
       measurement on this question and needs no new instrument.
+      **`002398-01` Rev 1's chapters 6 and 8, both appendices and the index
+      are read whole at 400 dpi (2026-09-15)**: no code change, and four
+      witnesses -- 765 status bits, the Apollo II keyboard's ASCII codes and
+      pointing escapes, the DUART clock-select table, the DN300's MSB-first
+      node ID lanes -- plus siomonit's unrecorded 15-second removal rule.
+      Chapters 1-5 and 7 are owed as images (`002398-01_WALK.md`).
       **14 of the 96 remain untouched**, and the rest are settled with their
       evidence: a second triage pass extracted **every remaining document's
       hardware-term matches with their context and read them**, which changed
