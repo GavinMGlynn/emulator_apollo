@@ -67,13 +67,42 @@ static void test_the_dumped_register_layout_is_reproduced(void) {
    *
    * So `21` becomes `15`, `31` becomes `1F`, `07` stays `07` and `87` becomes
    * `57` -- the same instant, in the format register B now selects. The two that
-   * do not move are the ones under ten, which is the whole tell. */
-  static const uint8_t expected[10] = {0x15, 0x00, 0x09, 0x00, 0x89,
+   * do not move are the ones under ten, which is the whole tell.
+   *
+   * *Corrected 2026-09-15: the hours byte read `89` here* -- 9 with the PM bit,
+   * the 12-hour form the board's reset used to leave the part in. The battery
+   * holds 24-hour mode (`ap_calendar_reset`), so the hour is `15` like the
+   * seconds beside it. */
+  static const uint8_t expected[10] = {0x15, 0x00, 0x09, 0x00, 0x15,
                                        0x00, 0x06, 0x1F, 0x07, 0x57};
   for (unsigned i = 0; i < 10; i++) {
     TEST_ASSERT_EQUAL_HEX8(expected[i],
                            ap_calendar_read(&calendar, AP_CALENDAR_ADDR + i));
   }
+}
+
+/* **The battery holds 24-hour mode, so an afternoon reads as its own hour.**
+ * `[146818]` p. 15 leaves `24/12` to software, nothing in the machine writes
+ * register B, and Domain/OS reads the hours byte as a 24-hour binary number:
+ * with the bit clear, 12:30 read back as `$8C` -- 140 hours -- and three DS5500
+ * volumes were stamped five days into their future, each to the minute. */
+static void test_the_battery_holds_twenty_four_hour_mode(void) {
+  ap_calendar_t calendar;
+  const ap_mc146818_time_t afternoon = {
+      .year = 2002u, .month = 11u, .day = 28u, .day_of_week = 5u,
+      .hour = 12u, .minute = 30u, .second = 0u,
+  };
+  TEST_ASSERT_TRUE(ap_calendar_reset(&calendar, &afternoon));
+  TEST_ASSERT_EQUAL_HEX8(AP_MC146818_B_DM | AP_MC146818_B_24HOUR,
+                         ap_calendar_read(&calendar, AP_CALENDAR_ADDR +
+                                                         AP_MC146818_REGISTER_B));
+  TEST_ASSERT_EQUAL_HEX8(12u, ap_calendar_read(&calendar, AP_CALENDAR_ADDR +
+                                                              AP_MC146818_HOURS));
+
+  /* And the evening the other tests start at: 21, not 9 with the PM bit. */
+  TEST_ASSERT_TRUE(ap_calendar_reset(&calendar, &START));
+  TEST_ASSERT_EQUAL_HEX8(21u, ap_calendar_read(&calendar, AP_CALENDAR_ADDR +
+                                                              AP_MC146818_HOURS));
 }
 
 static void test_the_calendar_raises_the_first_slave_interrupt(void) {
@@ -435,6 +464,7 @@ int main(void) {
   RUN_TEST(test_the_calendar_is_byte_consecutive_unlike_the_timer);
   RUN_TEST(test_the_registers_alias_through_the_range);
   RUN_TEST(test_the_dumped_register_layout_is_reproduced);
+  RUN_TEST(test_the_battery_holds_twenty_four_hour_mode);
   RUN_TEST(test_the_calendar_raises_the_first_slave_interrupt);
   RUN_TEST(test_the_calendar_outranks_every_line_below_the_cascade);
   RUN_TEST(test_the_config_checksum_is_the_sum_the_utility_computes);

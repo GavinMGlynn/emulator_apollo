@@ -4459,6 +4459,11 @@ discipline throughout.
   `[WD7000]` §5.2.4 frees it on the acknowledge. Detail in `PROJECT_STATUS.md`.
   **Next**: the same round trip on the DS5500, which the SCSI item below is
   about; its earlier boot stalled in the same wait loop.
+- **Calendar 24-hour mode, found and closed 2026-09-15** while installing the
+  DS5500's SCSI software: the battery held `DM` and not `24/12`, so afternoon
+  boots read the PM-flagged hour as up to 140 hours. Three volume stamps
+  matched to the minute. Identity reference now `7048E8ED74D015CF`. Detail in
+  `PROJECT_STATUS.md`.
 - [x] **`[030]` §11.6 transcribed whole and priced by the step — closed
   2026-09-15.** 60 → 248 rows over ten stages: §11.6.1–§11.6.18 whole, the five
   address tables with their full-format rows composed through Equation (11-2),

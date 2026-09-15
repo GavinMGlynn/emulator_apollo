@@ -39,8 +39,28 @@ bool ap_calendar_reset(ap_calendar_t *calendar,
    * that reads binary. `FINDINGS.md` C53 recorded the consequence years before
    * the cause -- "the Domain/OS kernel stops on a clock that runs backwards
    * between sessions" -- and it is this: read as binary, BCD dates are not
-   * monotone in real time, so 27 November lands *after* 1 December. */
-  ap_mc146818_write(&calendar->rtc, AP_MC146818_REGISTER_B, AP_MC146818_B_DM);
+   * monotone in real time, so 27 November lands *after* 1 December.
+   *
+   * ## And it holds `24/12` set, which the midnight clock could not show
+   *
+   * `[146818]` p. 15: "The 24/12 control bit establishes the format of the
+   * hours bytes as either the 24-hour mode (a '1') or the 12-hour mode (a
+   * '0'). This is a read/write bit, which is affected only by software." The
+   * same argument as `DM`, then: nothing in the machine writes register B, so
+   * the battery's value is the board's to state.
+   *
+   * **Until 2026-09-15 this wrote `DM` alone**, leaving the part in 12-hour
+   * mode, where an evening hour carries the PM bit -- and Domain/OS reads the
+   * hours byte as a plain 24-hour binary number. The experiment above could not
+   * see it: its clock was midnight, which 12-hour mode stores as 12, a shift of
+   * twelve hours that leaves the date and weekday alone. Three DS5500 volume
+   * stamps convicted it, each matching to the minute: a midnight power-on
+   * mounted at 12:08 the same day (12 read as 12); 12:30 on 28 November mounted
+   * at 20:31 on 3 December (`$8C`, 140 hours); 20:40 on 3 December mounted at
+   * 16:41 on 8 December (`$88`, 136 hours). Every guest boot with an afternoon
+   * clock had been starting up to six days in its own future. */
+  ap_mc146818_write(&calendar->rtc, AP_MC146818_REGISTER_B,
+                    AP_MC146818_B_DM | AP_MC146818_B_24HOUR);
   return true;
 }
 
