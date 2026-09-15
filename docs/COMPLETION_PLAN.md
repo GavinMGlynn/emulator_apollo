@@ -4633,9 +4633,12 @@ substance. They are the only items here with no route that is simply work.
       complete eight-group section attribute set, the 1,024-byte page stated two
       ways, the 3,072 sections-plus-marked-globals limit (2,048 before SR9.0),
       and two internal cross-reference errors.
-      **`AEGIS_Internals_and_Data_Structures` is in progress**
-      (`AEGIS_INTERNALS_WALK.md`): **all 426 pages passed over** — 7 chapters and
-      Appendix A read in full, the rest condensed. It **confirms six findings this
+      **`AEGIS_Internals_and_Data_Structures` is walked whole, 426/426
+      (2026-09-15)** (`AEGIS_INTERNALS_WALK.md`; it was *in progress, all 426
+      pages passed over — 7 chapters and Appendix A read in full, the rest
+      condensed*). No code change; the finishing pass excluded the bound-in
+      reverse-mapped MMU as the DN3000's DMMU and corrected the record's own
+      Figure 9-1 table from the page image. It **confirms six findings this
       project measured off a running DS5500 and explains two of them** — the
       vector table is the PROM's trap page copied and relocated (§26.1.1), the
       service table is machine ID at `100`, auxiliary info at `102`, entry points

@@ -2,7 +2,7 @@
 
 | Tag | File | Pages | Text layer | State |
 | --- | --- | --- | --- | --- |
-| `[AEGIS]` | `bitsavers/AEGIS_Internals_and_Data_Structures_Jan86.pdf` | 426 | born-digital, heavy OCR damage | **ALL 426 PAGES PASSED OVER — 7 chapters and Appendix A read in full; the other 22 chapters and Appendix B read in a condensed pass** |
+| `[AEGIS]` | `bitsavers/AEGIS_Internals_and_Data_Structures_Jan86.pdf` | 426 | born-digital, heavy OCR damage in the figures | **WALKED WHOLE, 426/426 (2026-09-15)** — every chapter's text layer read in full; Figures 9-1 and 9-2, chapter 11's map-entry figures, Appendix B and every memory map and register figure of the bound-in *Memory Organization and Management* read as page images. *This row said: ALL 426 PAGES PASSED OVER — 7 chapters and Appendix A read in full; the other 22 chapters and Appendix B read in a condensed pass* |
 
 Revision 00, Software Release **9.0**, January 1986. **Cited by title in
 `RING.md` and twice in `PROJECT_STATUS.md` and never walked** — which is how it
@@ -55,6 +55,29 @@ address space of **256 megabytes**, while the other nodes support a
 256 MB space is "allocated by **region**. Each region consists of **256
 segments**" — so a region is 8 Mbytes and there are 32 of them. "Region 31 is
 allocated to user and supervisor global address space."
+
+**Corrected 2026-09-15, from the page images at 300 dpi — the table above was
+built from the prose's segment counts, and Figure 9-1's addresses disagree with
+them.** The figure puts I/O space at **`F80000`**, not `F00000`. Its six address
+markers are arithmetic-consistent with 16 MB: `008000`-`200000` is 63 segments,
+`BC0000`-`C00000` 8, `C00000`-`E00000` 64 — each matching its label. The other
+three do not match their labels: `200000`-`BC0000` is **312** segments, not 320;
+`E00000`-`F80000` is **48**, not 32; `F80000`-`FFFFFF` is **16**, not 32. And
+the labels convict themselves: 1 + 63 + 320 + 8 + 64 + 32 + 32 is **520**
+segments, eight more than a 16 MB space holds. So the prose's counts and the
+figure's labels are wrong, and the addresses are the reading that sums. The
+table keeps the prose's figures above because they are what §9.1 prints.
+**Nothing in the core uses either**: this is SR9.0's 16 MB layout, and the
+machines modelled here are forward-mapped and run SR10.4.
+
+Figure 9-2 (256 MB) sums correctly where it is legible — region 01 at `0800000`,
+region 30 at `F000000`, the color segment at `F780000`, supervisor private
+`F788000` for 15 segments, I/O at `FF80000` for 16. It has typesetting slips of
+its own: the guard-segment and KGT markers repeat `0878000`/`0830000` out of
+order, and region 31's start prints as `0830000` where the arithmetic gives
+`F800000`. It also shows two areas the table above leaves out: a **user stack
+object** of the first 16 segments of user private space, and a one-segment
+**user special space for nodes with color displays**.
 
 **User private begins with the stack object**, and its shape is the shape of
 what a DS5500 process does at startup: process creation record (1 seg), private
@@ -460,6 +483,25 @@ and virtual memory layouts per node — `400-3FFF`, `4000-7FFF`, `8000-1FFFFF`,
 `200000-AFFFFF`, `700000-7FFFFF` are legible in the text layer and the rest is
 not. No address from it is used here.
 
+**Read as images, 2026-09-15.** Figures B-1 to B-6 were read at 300 dpi; p. 320
+is blank.
+
+- **Physical, DN3XX column:**
+  - PROM `0`, PFT `4000`, MMU `8000`, SIO `8400`;
+  - timers `8800`, calendar `8880`, DMA `9000`;
+  - Display1 `9400`, ring `9800`, disk/calendar `9C00`;
+  - FPU `B000`-`B800`;
+  - MD data `100000`, trap page `100400`;
+  - PTT `700000`.
+- **Virtual:** the same devices sit high in the 16 MB space, the ring at
+  `FF9C00` and the MMU at `FFB400`.
+
+Every device the bound-in *Memory Organization and Management* also lists is at
+the same physical address there (its Tables 2-4 to 2-6, read below). The
+exception is the one it names differently: `9C00` is the DN330's floppy. So
+Appendix B is the DN300-generation map, and the DN330/DN560/DSP90 kept it.
+Still nothing the core uses.
+
 ## The second document, and it is a hardware manual
 
 pp. 371-426 are **not part of AEGIS Internals**. They are a chapter of a
@@ -516,7 +558,297 @@ One incidental worth keeping: the **Network Number Hint** at `+20` is a field
 words were already carrying a hint field a year later, which is a caution
 against reading "Reserved" in any of these figures as "zero".
 
+## The bound-in *Memory Organization and Management*, read whole (2026-09-15)
+
+pp. 371-426 are a chapter numbered "2" whose footers run 1-1 to 1-37, followed
+by an Appendix A, *Floating Point Processing* (A-1 to A-17). The prose text
+layer is clean and was read in full. Read as page images at 150-200 dpi:
+Tables 2-1 to 2-8, Figures 2-1, 2-3 to 2-6, 2-8, 2-12 to 2-16 and 2-19, and
+PEB Figures A-1 and A-2. Page 1-30 carries only a handwritten scrawl; Figure
+2-16's flowchart is on the fold-out that follows it.
+
+**The machines** are DN330, DN560 and DSP90 on **68020** boards. Figure 2-14's
+bit 0 is "wired low ... so that the O/S can distinguish an MC68020-based CPU
+board from an MC68010-based one", labelled "0 if Stingray 020 Board".
+
+- **Virtual space** is **64 MB** (Figure 2-1), from a **26-bit** virtual
+  address (Figure 2-4).
+- **Physical addresses** are **22 bits**. Table 2-7 gives "actual address space
+  size is 4MB; 3MB are used for main memory, and 1MB is used (reserved) for I/O
+  space". Each node has 2.0 MB on the CPU board in 256K RAMs, plus 1.0 MB of
+  expansion in 64K RAMs.
+
+**Physical maps, Tables 2-4 to 2-6**, as the images give them:
+
+| Device | DN330 | DN560 | DSP90 |
+| --- | --- | --- | --- |
+| Boot PROM | `400` | `400`, PROM2 `14000` | `400` |
+| PFT | `4000` | `4000` | `4000` |
+| MMU | `8000` | `8000` | `8000` |
+| SIO | `8400` | `8400` | `8400` |
+| Timers | `8800` | `8800` | `8800` |
+| DMA | `9000` | — | `9000` |
+| Ring | `9800` | `9800` ("Ring2") | `9800` |
+| `9C00` | Floppy | Disk/Tape Cal | Disk/Tape Cal |
+| Calendar | — | — | `A000` |
+| Display1 memory | `20000` | `20000` | — |
+| I/O map, PBU I/O, PBU control, VME | — | `10000`, `70000`, `A400`, `BC00` | `10000`, `70000`, `A400`, `BC00` |
+
+The DN560 adds color memory at `40000`, color at `E000`, and Display1 user and
+supervisor at `F000`/`F400`. The DSP90 adds a line printer at `A800`.
+
+**The virtual maps, Tables 2-1 to 2-3**, put the boot PROM at `400` in Global
+A and every device near the top of Global B. On the DN330: PFT `3FFB800`, MMU
+`3FFB400`, SIO `3FFB000`, timers `3FFAC00`, floppy `3FFA800`, DMA `3FFA000`,
+ring `3FF9C00`, Display1 control `3FF9800`, Display1 memory `3FC0000`.
+
+These agree with Appendix B's DN3XX column for every device both list — PFT
+`4000`, MMU `8000`, SIO `8400`, timers `8800`, DMA `9000`, ring `9800`, `9C00`.
+
+**Registers, every field from the image:**
+
+- **Memory control/status** (Figure 2-3, 32 bits):
+  - 31:12 the failing physical address, read-only;
+  - 11:8 byte parity error flags;
+  - 7 write bad parity, read/write;
+  - 6 parity interrupt enable, "an MC68020 level-7 interrupt";
+  - 5 DMA access in progress;
+  - 4 B-port access in progress, "a memory access from a VMEbus device";
+  - 3 upper or lower word, "bit 1 in the address bus", valid only for B-port
+    accesses "since the B-Port Interface bus is only 16 bits wide".
+
+  On a parity error "the memory cycle completes, the longword address where the
+  parity error occurred is frozen" and a level-7 interrupt is generated.
+- **Page Frame Table** (Figure 2-6): 4,096 32-bit entries, indexed by physical
+  page number, one per 1 KB page frame. Fields:
+  - 31:25 ASID;
+  - 24 S;
+  - 23 DOMAIN, "This bit is unused";
+  - 22 W, 21 R, 20 X;
+  - 19:16 XVPN;
+  - 15 end-of-list, 14 modified, 13 accessed, 12 global;
+  - 11:0 link, the next PPN whose hashed VPN is the same.
+
+  Software sets end-of-list in "one (any, arbitrary) entry per linked list".
+- **Page Translation Table** (Figure 2-8): 4,096 entries, "a cache", indexed by
+  the 12-bit hashed VPN. Software reaches it at `400000`-`7FFFFF` only while PTT
+  access enable is set. Table 2-8 gives all four MMU/PTT combinations: with the
+  MMU on and the PTT off that range is ordinary per-process space; with both
+  off it is unused.
+- **ASID register** (Figure 2-12): write-only, 8 bits.
+  - 7 FPU trap enable: 0 = "trap next FPU chip access", 1 = allow;
+  - 6:0 the ASID, "one binary number (of 128)".
+- **MMU control** (Figure 2-13):
+  - 0 MMU enable;
+  - 1 PTT access enable;
+  - 2 the "Domain" bit, unused;
+  - 3 FPU trap, unused;
+  - 7:4 reserved.
+- **MMU status** (Figure 2-14):
+  - 7 access violation;
+  - 6 page fault, the end-of-list bit passed twice;
+  - 5 bus/MMU timeout or MMU parity error;
+  - 4 service switch, "1 = Normal Mode; 0 = Service Mode";
+  - 3 MMU error;
+  - 2 orderly shutdown switch, "normally a 1";
+  - 1 PTT access enable;
+  - 0 wired low on a 68020 board.
+
+  Bits 7, 6 and 5 are "cleared by writes to this register".
+- **MMU parity** (Figure 2-15):
+  - 15 write wrong MMU parity, which writes odd parity into both tables for
+    diagnostics;
+  - 14 MMU parity fault enable;
+  - 13 PTT parity error;
+  - 12 PFT parity error;
+  - 11:0 the failing PFT entry's contents, or the failing PTT entry's index.
+
+  Parity is even, over 30 of a PFT entry's 32 bits. The M and U bits are left
+  out because the MMU writes them on every access.
+
+**Translation** (Figures 2-4, 2-16 and 2-19, Table 2-8):
+
+1. A virtual address splits into XVPN 25:22, HVPN 21:10 and a 10-bit offset.
+2. The HVPN indexes the PTT, and the PPN found there indexes the PFT.
+3. A hit needs the XVPN to match and either the ASID to match or G to be set.
+4. S/R/W/X are then checked against the function code. Figure 2-19: "R must be
+   set for X or W to occur", and function code 7 is "Never mapped. Used for CPU
+   space access".
+5. A miss walks the link chain, and "the MMU 'updates' the PTT" with the entry
+   it finds.
+6. Two failures raise a bus error: end-of-list seen twice is a page fault, and a
+   rights mismatch is an access violation.
+
+**Timing:** "At most, the MMU needs .68ms to completely search the PFT". The
+MMU times out **12.8 ms** from the start of the cycle, and the flowchart gives
+the CPU's own bus timeout as **6.4 ms**. Unmapped mode passes the low 22 bits
+through.
+
+**Appendix A is the PEB**, the floating-point accelerator of the DN320 and
+DN550; the DN330 and DN560 use the 68881 instead.
+
+- **Control register:**
+  - 0 FPU enable;
+  - 1 step;
+  - 2 reset;
+  - 3 exception interrupt enable;
+  - 8:4 upper control-store address, 4 halt, 5 run, 6 step.
+- **Status register:**
+  - 0 micro-PC MSB;
+  - 1 control-store parity error;
+  - 3 exception interrupt pending;
+  - 14:4 micro-PC;
+  - 15 busy.
+- **Diagnostics register:** disable-, step+, reset-, intent+, halt-, freeze-,
+  full- and Rev-X, where Rev-X 0 is "Rev 0 1k WCS" and 1 is "Rev 1 4k WCS".
+- **Formats:** double precision is printed as "11-bit exponent ... actual
+  exponent + 2047".
+- **Tables A-1 to A-6** give each operation as an address in the FPU page, from
+  `$7000` (base and reset) to `$73FC` (the FPU status register).
+
+Figure A-3 and the six operation tables were read from the text layer only. Its
+digits are OCR-damaged (`$7084` where the sequence gives `$70B4`), so no PEB
+address is claimed here.
+
+**Nothing in this document is owed to the model.** No machine modelled here is
+reverse-mapped or carries a PEB. Four results are worth having anyway.
+
+1. **It is not the DN3000's DMMU, which was the question it had to be read
+   against.** `ap_model.c`'s `dn3000` row says no document describes the DMMU's
+   registers. This is the one Apollo MMU on the shelf whose registers are
+   described: a 68020-era part with a **64 MB** virtual space, SR9.7's figure
+   for DMMU hardware. So it was the candidate, and three facts exclude it.
+   - It is **memory-mapped**: PFT at physical `4000`, registers at `8000`, and
+     Figure 2-19 marks function code 7 "never mapped".
+   - `008778-03` §3.2 decodes the DS3000's DMMU on the **CPU space** decode,
+     beside the floating-point coprocessor.
+   - Both DN3000 boot PROMs program their MMU with **`PMOVE` at coprocessor id
+     000**, to TC 11 or 12 times and CRP 6 (`PROJECT_STATUS.md`, the `.mmu`
+     item), and a 68020 delivers that through CPU space. Their 32,768 bytes also
+     cover `4000`, where this design puts its PFT.
+
+   The web adds a weaker fifth witness: retro.co.za's Apollo page lists the
+   DN3000 as "12MHz 68020, 68881 FPU, **proprietary MMU**" and the DN3500 as
+   "on-chip MMU". The row's value is unchanged, and the question stays open on
+   the terms it already had.
+2. **A register lineage.** This MMU status register sits at `8000` and carries
+   the service switch as 1 = normal. The DN3000/DN3500 CSR status register also
+   sits at `8000` in the oracle's map, and `ap_boardreg.h` carries Normal/Service
+   at **bit 0** with the same polarity. Same address, same sense, different bit.
+3. **A third witness to the level-7 parity NMI** with a frozen failing address,
+   which `ap_parity.h` models from `008778-03` §3.2.
+4. **Six internal slips, none of which affects anything above:**
+   - the page-fault and access-violation text sets bits 6 and 7 "in the MMU
+     control register", where Figure 2-14 puts them in the status register;
+   - Figure 2-14's bit 1 "reflects ... bit 1 in the MMU Status Register", meaning
+     the control register;
+   - Figure 2-13 prints the PTT range as `$4000000-$8000000`, one digit longer
+     than everywhere else;
+   - Figure 2-8 says "4096 12-bit entries" but draws the PPN as 12:0;
+   - the flowchart labels its PFT parity check "PTT Parity Error";
+   - Figure 2-6's heading text calls bit 13 "Accessed" where the prose and the
+     flowchart say "Used".
+
+**And against `[AEGIS]` itself, two generations of one design.**
+
+- **The older one**, in §10.7.1 and the glossary: a PTT of **1,023** entries
+  mapping "1 megabyte of virtual memory at a time". Figure 11-6's MMAPE carries a
+  **10-bit** PTT index (9:0).
+- **The bound-in one**: a 4,096-entry PTT indexed by a 12-bit hashed VPN, the
+  same idea enlarged.
+
+Both draw the same PFT entry. Figure 11-6 omits the XVPN and calls bit 23
+"domain 0 or 1", where Figure 2-6 says it is unused.
+
+## The rest of the text layer, read in full (2026-09-15)
+
+**What was read:**
+
+- Chapters 1-8, 10-17, 20, 22-25 and 28-29, sentence by sentence.
+- Chapter 11's map-entry figures, **11-4 to 11-7**, as images at 200 dpi.
+- Appendix C, the glossary in full, and the index passed over.
+
+These are SR9.0 kernel structures for DN300, DN4xx, DN5xx and DNx60 nodes. None
+is a DN3500 register and nothing changed. What a later reader may want:
+
+- **Storage:**
+  - a 1,024-byte page in a 1,056-byte block, and 32-page segments;
+  - logical DADDR = physical − 1;
+  - a VTOC block holds five VTOCEs, and VTOCX = DADDR<<4 | index;
+  - L1/L2/L3 file maps;
+  - "One physical volume can contain a maximum of 10 logical volumes" (glossary).
+- **Names:**
+  - a UID is 64 bits: a 36-bit creation time since 1/1/80 at 16 ms resolution, 8
+    must-be-zero bits and a 20-bit node ID;
+  - object addresses are 96 bits;
+  - an internet address is "a 32-bit network number and a 20-bit node ID".
+  - Appendix C's canned-UID series `0000.02xx` lists `pv_label_$uid`,
+    `lv_label_$uid`, `vtoc_$uid` and `bat_$uid` in that order. That fits the
+    `00000200`/`00000201` measured on the DS5500 volume above.
+- **Clocks:**
+  - a real-time clock of 4 µs;
+  - an interval timer down to 32 µs;
+  - a virtual-time clock that is a 16-bit timer ticking at 8 µs;
+  - time slices of 1/10 s to 1/2 s.
+- **Processes:**
+  - 32 level-1 processes, PIDs 1-8 reserved;
+  - resource locks 0-25, with `ring_$mlt_lock` at 23;
+  - ASID 0 global, 1 the DM, 2-25 user;
+  - priority 1-16.
+  - The glossary's "A maximum of 16 processes can exist at one time (per node)"
+    conflicts with chapter 14's 32. It blames the limit on wiring memory for PROC2
+    bind/unbind, so it is probably a level-2 count. Not settled, and not used.
+- **Memory:**
+  - DNx60 forward mapping is 32 regions × 256 segments × 32 pages;
+  - physical addresses are 22 bits, or 26 on a DNx60, and Figure 11-7's SMAPE
+    `pmap_phadd` is 25:0;
+  - a remote page-in carries at most 16 pages;
+  - "Forward-mapped systems store the high portion of the disk address in the
+    PMAPE and the low portion in the MMAPE; it's the reverse in reverse-mapped
+    systems".
+  - **ASTE size:** Figures 11-4 and 11-5 give 60 bytes reverse-mapped and 68
+    forward-mapped. The forward-mapped entry adds `.mst_thread` and
+    `.pmap_phadd`, and its event number is 0-15.
+  - **Figure 11-7's forward PMAPE:**
+    - 31 valid, 30 used, 29 modified, 28 indirect, 27 may-be-written;
+    - 26 in-transition, 25:24 wired count, 23 resident, 22 null;
+    - 21:16 disk address high, 15:0 PPN, labelled "12 bits".
+
+    Its MMAPE is 48 bits wide.
+- **Chapter 12:** ASID 0 unprotected is user global and protected is supervisor
+  global; ASIDs 1-25 are per-process. `mst_$install_ioppn` and
+  `mst_$remove_ioppn` map memory-mapped controllers into user space for GPIO.
+- **Network:**
+  - packet type bits: broadcast, hw diag, please, thanks, user, paging, sw diag;
+  - the EACK carries intend-to-copy;
+  - the ACK byte's bits are named CRC, PKT ERR, CPY, WAK, PAR.
+  - `[MAC]` Figure 2-8's late acknowledge (`RING.md` finding 23) has copied,
+    wait-ack, intend-to-copy, error and odd parity, and **no CRC bit**. `[MAC]`
+    is the protocol specification and is what the ring model follows, so this is
+    recorded as a difference and not acted on.
+  - sockets 1-30, and a buffer pool of 192 pages;
+  - a sticky biphase check every 5 s;
+  - RIP every 30 s with a 90 s timeout;
+  - 64 networks and 7 ports.
+- **Boot:**
+  - cold start at physical `100800`, with the trap page copied to `100400`;
+  - `os_$init`'s manager table;
+  - the bootshell command table, which matches `MD.md`;
+  - `syslib` variants chosen by machine type and PEB kind.
+- **Glossary:**
+  - "reverse-mapped MMU: The memory management unit present on all node models
+    except the DN160, DN460, and DN660";
+  - an access violation is "An attempt to write to read-only memory";
+  - a region is a 256-segment section, into which "The DNx60 machine partitions
+    virtual memory into 31 regions", against chapter 9's 32 with region 31
+    global.
+- **Index:** its hardware entries point back into chapters already read.
+
 ## What is owed
+
+**Nothing, as of 2026-09-15.** Every page has now been read. Text layers were
+read in full, and figures that carry addresses or bit positions were read as
+images. The section below is kept as it stood while the walk was in progress.
 
 **Full sentence-by-sentence reads**, which is the standard the other walk
 records hold themselves to, are owed for everything not marked **done**. The
@@ -561,3 +893,22 @@ the prose does not repeat a number it is not claimed here. No page was read as
 an image; the two figures that would most repay it (9-1 and 9-2) are owed a
 600-dpi read before any address in them is used as a source rather than as
 context.
+
+**2026-09-15: that read is done, at 300 dpi, and it found the table above wrong.**
+Figures 9-1 and 9-2 are typeset bold on a clean scan. Every marker read
+unambiguously at 300 dpi, so 600 would have added nothing. Figure 9-1's
+addresses disagree with the prose's segment counts, and the addresses are the
+reading that sums to 16 MB. The correction sits under chapter 9's table, and
+the table's original figures are kept.
+
+Also read as images the same day:
+
+- Appendix B's six figures, at 300 dpi; p. 320 is blank;
+- chapter 11's Figures 11-4 to 11-7, at 200 dpi;
+- every memory map and register figure of the bound-in document, at 150-200
+  dpi.
+
+The rest of the document was read from its text layer, which is clean in the
+prose and damaged only in figures. **No address or bit position in this record
+comes from a damaged figure's text layer.** The PEB operation tables are the one
+place where that was the only source, and none of their addresses is claimed.

@@ -87,6 +87,12 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
          * is not. This row keeps the 68851 because the oracle registers a
          * Series 3000 as `MC68020PMMU`, the DN3000 PROM diff agrees on 29 of
          * 29 CPU fields, and no document describes the DMMU's registers.
+         * The one Apollo MMU whose registers *are* on the shelf is not it:
+         * `[AEGIS]` pp. 371-426 bind in the DN330/DN560/DSP90's reverse-mapped
+         * MMU, a 68020-era part with the DMMU's 64 MB virtual space, but it is
+         * memory-mapped (PFT at `4000`, registers at `8000`), where `[S3K]`
+         * §3.2 decodes the DMMU in CPU space and both DN3000 PROMs program
+         * theirs with `PMOVE` to TC and CRP.
          *
          * **Not marked `provisional`, deliberately**: `model_suite` holds that
          * a model with a runnable oracle carries no guesses, because the
