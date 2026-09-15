@@ -105,7 +105,15 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
          *
          * A hardware manual beats a configuration guide for a hardware fact,
          * and an uncited field in the reference row is what invites a
-         * plausible wrong correction. */
+         * plausible wrong correction.
+         *
+         * *And the row is the 1988 machine.* `[CFG]`'s own Series 3500 mono
+         * options (pp. D-41/D-42) list no 1024x800 controller at all -- DM0
+         * and FM2 only -- and `5952-2149` p. 68 agrees, so by December 1989 a
+         * mono DN3500 shipped at 1280x1024 and DM0 no longer distinguishes it
+         * from a DN3550. The 1024x800 stands on `[S3K]` §11, the July 1988
+         * price list's "MONO 15" 1024x800" and the oracle's machine
+         * (`CFG_WALK.md`). */
         .display = AP_DISPLAY_MONO_1024X800,
         .oracle = AP_ORACLE_MAME,
         .ram_base = 0x1000000u,

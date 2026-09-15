@@ -113,10 +113,22 @@ The rest is software ordering tables and national versions.
 **No value changes.** One reading marked `PROVISIONAL` with a citation, and one
 disagreement between the two guides recorded.
 
+## The Series 3500 option pages, D-41..D-45 and D-51..D-54, read as images (2026-09-15)
+
+The reference machine's own ordering pages, mono and colour, at 300 dpi.
+
+| Page | Content | Against this core |
+| --- | --- | --- |
+| D-41, D-42 | DN3500 mono: the ordering line (25 MHz 68030 and 68882, 7-slot AT/XT bus with 6 AT and 1 XT, "RS232 serial interface (3 asychronus ports)"); options DM0, E01 diskless, E4D/E4F/E4C and E6x/E8x 155/348/697 MB with floppy or 60 MB cartridge, **FM2 only for a display**, G01-G03, **H01 4 MB and H02 8 MB** | **the mono DN3500 of December 1989 offers no 1024x800 controller at all** -- no DL0, no FM1, only DM0 with FM2, and `5952-2149` p. 68's matrix agrees. The `DN3500` row's `MONO_1024X800` stands on `[S3K]` §11, the July 1988 price list's "MONO 15" 1024x800" (`PRICE_LIST_WALK.md`) and the oracle's machine, so it is the 1988 configuration, not the 1989 one. **Not changed**; `ap_model.c`'s comment now says so, because its claim that DM0 "is exactly what the `DN3550` row below is" no longer separates the two |
+| D-43..D-45 | add-on options: 4 and 8 MB boards; **A-ADD-SWFC "DN3500 with rev 9 (or greater) CPU"** (rev 25 on a Series 4000); **ADD-TC, "60-MB Cartridge tape drive and controller"**, needing only a DN3500; A-ADD-STC the SCSI cartridge; A-ADD-FPA; A-6250 1/2" tape; **8 mm drives (A-EX, A-697SX...) "Requires SR10.1 with PSK LFZ30"**; LFZ20 (SR9.7.1) "required to support the Multifunction Peripheral Controller and 70 Hz monitor ... -F graphics and FPA" | ADD-TC is the `ap_sc499` card this core fits; SWFC is the OMTI multi-function controller; the 8 mm drive's SR10.1 floor is consistent with `ap_exb8200` running under SR10.4 |
+| D-51..D-54 | DN3500 colour: FC1 15" (DC0 or DE0), FC2 19" medium resolution, **FC3 19" high resolution 68 Hz (DF0)**, **FC4 70 Hz (DA0)**; **H03 12 MB and H04 16 MB "available with option DC0 or DE0 only"**; K01-K07 credits; the same add-ons | the 12/16 MB restriction is a colour-configuration rule; `ap_sio.c`'s strap table carries both sizes, decoded by the firmware |
+
+**No value changes.** One comment corrected to say which year the row describes.
+
 ## What is owed
 
 *The model description blocks, then `5952-2149`'s descriptive pages and matrices,
-were read next (above).* The Product Summary
+then the Series 3500 option pages, were read next (above).* The Product Summary
 option pages beyond those cited, the Series 10000 section, the upgrade matrices
 (pp. 331-358), and the 88-page July 1990 quick reference. *This said "The Series
 3000, 4000, 4500, 3010A and Model 3550 sections, the upgrade matrices (pp.
