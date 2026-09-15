@@ -1418,16 +1418,55 @@ static void test_the_left_arithmetic_shift_costs_more_than_the_right(void) {
   TEST_ASSERT_EQUAL_UINT(4u, lsr->timing.cache_case);
 }
 
-/* The register-count shifts are marked `%` and `+` -- "shift count is less than
- * or equal to the size of data" and "greater than size of data" -- so their
- * cost depends on a value the table cannot publish. They are not transcribed,
- * and the lookup says so rather than returning the immediate-count row, which
- * would under-count a long shift by half. */
-static void test_a_register_count_shift_is_not_transcribed(void) {
-  /* LSR.L D1,D0: bit 5 set means the count is in a register. */
+/* The register-count `LSd` and `ASR`, which §11.6.12 prints twice apiece --
+ * `%` for a count "less than or equal to the size of data", `+` for one
+ * "greater than size of data" -- priced on a running machine by the count the
+ * run shifted, warm. `LSR.L D1,D0` is 6 by 4 and 8 by 40, and 6 by 68, which is
+ * 4 modulo 64; `ASR.B D1,D0` is 6 by 8, the byte's own size, and 10 by 9. Until
+ * stage 9 neither had a row and each cost its bus time.
+ *
+ * The word alone still has no row, since it cannot know the count, and the
+ * immediate-count form beside it keeps the word lookup's. */
+static void test_a_register_count_shift_is_priced_by_its_count(void) {
   TEST_ASSERT_NULL(ap_m68030_timing_for_word(0xE2A8u));
-  /* And the immediate-count form beside it is. */
   TEST_ASSERT_NOT_NULL(ap_m68030_timing_for_word(0xE288u));
+
+  static const struct {
+    uint16_t word;
+    uint32_t count;
+    uint64_t warm;
+    const char *what;
+  } CASES[] = {
+      {0xE2A8u, 4u, 6u, "LSR.L D1,D0 by 4"},
+      {0xE2A8u, 40u, 8u, "LSR.L D1,D0 by 40"},
+      {0xE2A8u, 68u, 6u, "LSR.L D1,D0 by 68, 4 modulo 64"},
+      {0xE220u, 8u, 6u, "ASR.B D1,D0 by 8, the size itself"},
+      {0xE220u, 9u, 10u, "ASR.B D1,D0 by 9"},
+  };
+
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    blank();
+    ap_machine_t m;
+    ap_machine_init(&m, ram, RAM_BYTES);
+    ap_machine_reset(&m, PROGRAM, STACK);
+    write_cacr(&m, CACR_EI);
+    TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM, 2u, CASES[c].word));
+
+    uint64_t previous = 0;
+    for (unsigned i = 0; i < 5u; i++) {
+      m.cpu.regs.pc = PROGRAM;
+      m.cpu.regs.d[0] = 0x12345678u;
+      m.cpu.regs.d[1] = CASES[c].count;
+      ap_m68030_fetch_reset(&m.cpu.fetch, PROGRAM);
+      previous = m.cpu.clocks;
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED,
+                                    ap_machine_step(&m).status, CASES[c].what);
+      if (i > 0u) {
+        TEST_ASSERT_EQUAL_UINT64_MESSAGE(CASES[c].warm, m.cpu.clocks - previous,
+                                         CASES[c].what);
+      }
+    }
+  }
 }
 
 /* A branch's cost is not a function of its opcode. §11.6.15 gives a taken `Bcc`
@@ -3334,7 +3373,7 @@ int main(void) {
   RUN_TEST(test_the_unfootnoted_memory_moves_match_both_columns);
   RUN_TEST(test_the_predecrement_move_costs_more_than_the_postincrement);
   RUN_TEST(test_the_left_arithmetic_shift_costs_more_than_the_right);
-  RUN_TEST(test_a_register_count_shift_is_not_transcribed);
+  RUN_TEST(test_a_register_count_shift_is_priced_by_its_count);
   RUN_TEST(test_a_taken_branch_costs_more_than_an_untaken_one);
   RUN_TEST(test_leaving_a_dbcc_loop_costs_more_than_going_round);
   RUN_TEST(test_bsr_is_priced_as_a_call_not_as_an_untaken_branch);

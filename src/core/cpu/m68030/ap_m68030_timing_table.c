@@ -293,6 +293,11 @@ enum {
   ROW_MOVE_FULL_OD_LONG_BD_NULL,
   ROW_MOVE_FULL_OD_LONG_BD_WORD,
   ROW_MOVE_FULL_OD_LONG_BD_LONG,
+  /* §11.6.12's register-count `LSd` and `ASR`, which the run's count selects. */
+  ROW_LS_DX_WITHIN,
+  ROW_LS_DX_BEYOND,
+  ROW_ASR_DX_WITHIN,
+  ROW_ASR_DX_BEYOND,
   ROW_COUNT,
 };
 
@@ -600,7 +605,7 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     /* §11.6.12's memory shifts, all `*` and all by one bit, and the two
      * register-count rows the page prints **without** `%` or `+`: `ASL Dx,Dy`
      * and `ROd Dx,Dy` cost 8 whatever the count, where `LSd` and `ASR` split
-     * by count and stay unpriced. `ASL` is again dearer than `ASR` in memory, 6
+     * by count -- the four rows after `ROd Dx,Dy`. `ASL` is again dearer than `ASR` in memory, 6
      * against 4, for the same reason as the register form: it watches the sign.
      *
      * **`ROXd Mem by 1` disagrees with itself on the page**: `4(0/0/1)` in the
@@ -613,6 +618,14 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_ASL_MEM] = {"ASL Mem by 1", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_ASR_MEM] = {"ASR Mem by 1", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_RO_DX] = {"ROd Dx,Dy", {.head = 6, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    /* The register-count rows the page prints twice (p. 11-45): `%`, "shift
+     * count is less than or equal to the size of data", and `+`, "shift count
+     * is greater than size of data". The count is the register's modulo 64,
+     * as the shift itself takes it. */
+    [ROW_LS_DX_WITHIN] = {"LSd Dx,Dy (Count <= Size)", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_LS_DX_BEYOND] = {"LSd Dx,Dy (Count > Size)", {.head = 8, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ASR_DX_WITHIN] = {"ASR Dx,Dy (Count <= Size)", {.head = 6, .tail = 0, .cache_case = 6, .no_cache_case = 6, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_ASR_DX_BEYOND] = {"ASR Dx,Dy (Count > Size)", {.head = 10, .tail = 0, .cache_case = 10, .no_cache_case = 10, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_RO_MEM] = {"ROd Mem by 1", {.head = 0, .tail = 0, .cache_case = 6, .no_cache_case = 6, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
     [ROW_ROX_MEM] = {"ROXd Mem by 1", {.head = 0, .tail = 0, .cache_case = 4, .no_cache_case = 4, .writes = 1, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
 
@@ -1178,6 +1191,20 @@ ap_m68030_timing_for_selected(uint16_t instruction, uint16_t extension,
         ROW_BFCLR_MEM5, ROW_BFFFO_MEM5,  ROW_BFSET_MEM5, ROW_BFINS_MEM5};
     return &TABLE[outcome ? FIVE[type] : FEWER[type]];
   }
+  /* §11.6.12's register-count `LSd` and `ASR`, `1110 ccc d ss 1 tt rrr` with a
+   * size of `00`-`10`, by whether the count exceeded the operand's size -- the
+   * page's `%` and `+`. `ASL Dx,Dy` and `ROd Dx,Dy` print once, and `ROXd Dn`
+   * once, and are the word lookup's. */
+  if ((instruction & 0xF020u) == 0xE020u && ((instruction >> 6) & 0x3u) != 0x3u) {
+    const unsigned type = (unsigned)((instruction >> 3) & 0x3u);
+    const bool left = ((instruction >> 8) & 1u) != 0u;
+    if (type == 0x1u) {
+      return &TABLE[outcome ? ROW_LS_DX_BEYOND : ROW_LS_DX_WITHIN];
+    }
+    if (type == 0x0u && !left) {
+      return &TABLE[outcome ? ROW_ASR_DX_BEYOND : ROW_ASR_DX_WITHIN];
+    }
+  }
   return nullptr;
 }
 
@@ -1515,10 +1542,10 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
   }
 
   /* §11.6.12's shifts, family 1110. Bits 4-3 name the type, bit 8 the
-   * direction and bit 5 whether the count is immediate or in a register. Only
-   * the immediate-count forms are transcribed: the register-count rows are
-   * marked `%` and `+` for counts within and beyond the operand size, so their
-   * cost depends on a value the table cannot publish. */
+   * direction and bit 5 whether the count is immediate or in a register. The
+   * register-count `LSd` and `ASR` are marked `%` and `+` for counts within and
+   * beyond the operand size, so the word alone cannot choose: they are
+   * `ap_m68030_timing_for_selected`'s, from the count the run shifted. */
   if (family == 0xEu) {
     /* Bits 5-3 are **not** an addressing mode here: bit 5 says where the count
      * comes from and bits 4-3 name the shift type. The memory forms are the
@@ -1572,7 +1599,7 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
       case 0x3u:
         return &TABLE[ROW_RO_DX];
       default:
-        return nullptr; /* LSd: see the table's % and + markers */
+        return nullptr; /* LSd: by count, the selected lookup's */
       }
     }
     switch (type) {

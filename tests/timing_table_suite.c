@@ -149,7 +149,8 @@ static void test_what_is_not_transcribed_is_reported_as_absent(void) {
    * transcribed, and NOP before it: a placeholder for "not covered" needs
    * replacing whenever coverage grows, which is the right kind of churn. */
   TEST_ASSERT_NULL(ap_m68030_timing_for_word(0x4E7Bu)); /* MOVEC Rn,Cr */
-  /* A register-count shift, whose cost the table marks as count-dependent. */
+  /* A register-count `LSd`, which the page prints twice by count: the selected
+   * lookup's, not the word's. */
   TEST_ASSERT_NULL(ap_m68030_timing_for_word(0xE2A8u)); /* LSR.L D1,D0 */
 }
 
@@ -618,7 +619,7 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       {0xE7D0u, "ROd Mem by 1", "ROL (A0)"},
       {0xE8D0u, nullptr, "BFTST (A0) -- bit 11 set is a bit field"},
       {0xE3A0u, "ASL Dx,Dy", "ASL.L D1,D0"},
-      {0xE2A0u, nullptr, "ASR.L D1,D0 -- count-dependent"},
+      {0xE2A0u, nullptr, "ASR.L D1,D0 -- by count, the selected lookup's"},
       {0xE3B8u, "ROd Dx,Dy", "ROL.L D1,D0"},
       {0xE8C0u, "BFTST Dn", "BFTST D0 -- the register form is the word's"},
       {0xEFC7u, "BFINS Dn", "BFINS D7"},
@@ -714,6 +715,12 @@ static void test_the_rows_an_extension_or_outcome_selects_are_found(void) {
       {0x4C50u, 0x0000u, false, "DIVU.L EA,Dn", "DIVU.L (A0),D0"},
       {0x4C80u, 0x0000u, false, nullptr, "MOVEM, not a long multiply"},
       {0x02C0u, 0x0800u, false, nullptr, "CHK2.W D0 -- not a control mode"},
+      {0xE2A8u, 0x0000u, false, "LSd Dx,Dy (Count <= Size)", "LSR.L D1,D0, within"},
+      {0xE3A8u, 0x0000u, true, "LSd Dx,Dy (Count > Size)", "LSL.L D1,D0, beyond"},
+      {0xE2A0u, 0x0000u, false, "ASR Dx,Dy (Count <= Size)", "ASR.L D1,D0, within"},
+      {0xE220u, 0x0000u, true, "ASR Dx,Dy (Count > Size)", "ASR.B D1,D0, beyond"},
+      {0xE3A0u, 0x0000u, true, nullptr, "ASL.L D1,D0 -- one row, the word's"},
+      {0xE2E8u, 0x0000u, true, nullptr, "a size of 11 is a memory shift"},
   };
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
     const ap_m68030_table_entry_t *row = ap_m68030_timing_for_selected(

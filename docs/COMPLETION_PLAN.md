@@ -4509,9 +4509,14 @@ discipline throughout.
   fewer fetches — §11.3.3's Figures 11-4/11-5, whose four per-instruction
   figures now come out on a running machine. **Next**: §11.6.12's `LSd Dx,Dy`
   and `ASR Dx,Dy`, found unpriced; stage 7's "last owed part" had missed them.
-  **Owed**: §11.6.12's `LSd Dx,Dy` and `ASR Dx,Dy`, count-dependent (`%`/`+`).
+  **Stage 9**: §11.6.12's register-count `LSd`/`ASR`, two rows apiece chosen by
+  the count, 244 → 248; and a scan of every executable word against every
+  lookup, which leaves 53 unpriced. **Next**: `NBCD Mem` (37 words), which
+  neither §11.6.11 nor the 68020's §9.2.11 prints, and `TST An` (16), which the
+  68020 prints as one `TST EA` row; the scan made a test.
+  **Owed**: `NBCD Mem` and `TST An`.
   *(Before stage 4b this also named
-  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17; before 5c, §11.6.18; before 5d, `CHK`/`CHK2`; before 5e, `MOVEM`; before 5f, the long multiplies and divides; before 6, §11.6.6's mode-6 destinations; before 7, the full-format rows of §11.6.2, §11.6.4 and §11.6.5; before 8, the address rows' own no-cache difference in the prefetch exposure.)*
+  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17; before 5c, §11.6.18; before 5d, `CHK`/`CHK2`; before 5e, `MOVEM`; before 5f, the long multiplies and divides; before 6, §11.6.6's mode-6 destinations; before 7, the full-format rows of §11.6.2, §11.6.4 and §11.6.5; before 8, the address rows' own no-cache difference in the prefetch exposure; before 9, §11.6.12's `LSd Dx,Dy` and `ASR Dx,Dy`.)*
   *(Before stage 4a this list also named §11.6.7, §11.6.16's rest and "the
   §11.6.4 (calculate immediate) and §11.6.5 (jump) tables, which do not exist
   in the code".)*

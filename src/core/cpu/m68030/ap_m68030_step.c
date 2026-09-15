@@ -2319,6 +2319,9 @@ static bool execute_shift(ap_m68030_cpu_t *cpu, const ap_m68030_shift_t *shift,
         shift->count_in_register
             ? (unsigned)(cpu->regs.d[shift->count] % 64u)
             : shift->count;
+    /* §11.6.12 prices a register-count `LSd` and `ASR` by whether this count
+     * exceeds the operand's size in bits; the selected lookup reads it. */
+    cpu->timing_outcome = count > shift->size * 8u;
 
     const uint32_t mask = (shift->size == 1u)   ? 0xFFu
                           : (shift->size == 2u) ? 0xFFFFu
