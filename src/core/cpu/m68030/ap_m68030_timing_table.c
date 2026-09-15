@@ -252,6 +252,15 @@ enum {
   ROW_TRAPCC_L_NO_TRAP,
   ROW_TRAPV_TRAP,
   ROW_TRAPV_NO_TRAP,
+  /* §11.6.18, whole. */
+  ROW_BUS_FAULT_SHORT,
+  ROW_BUS_FAULT_LONG,
+  ROW_RTE_NORMAL,
+  ROW_RTE_SIX_WORD,
+  ROW_RTE_THROWAWAY,
+  ROW_RTE_COPROCESSOR,
+  ROW_RTE_SHORT_FAULT,
+  ROW_RTE_LONG_FAULT,
   ROW_COUNT,
 };
 
@@ -722,6 +731,32 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_TRAPCC_L_NO_TRAP] = {"TRAPcc.L (No Trap)", {.head = 8, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ODD_WORDS},
     [ROW_TRAPV_TRAP] = {"TRAPV (Trap)", {.head = 2, .tail = 0, .cache_case = 22, .no_cache_case = 24, .reads = 1, .writes = 5, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_TRAPV_NO_TRAP] = {"TRAPV (No Trap)", {.head = 4, .tail = 0, .cache_case = 4, .no_cache_case = 4, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+
+    /* §11.6.18, Save and Restore Operations, from the page image (p. 11-51),
+     * "with complete execution times and stack length given".
+     *
+     * The bus fault rows are exceptions like §11.6.17's and are charged the same
+     * way, microcode on the bus the frame ran. **Their frames' cycle counts are
+     * `[030]` §8.4's long-word rule**, which `take_bus_fault_with` follows: 10
+     * writes short and **25** long, where the page prints **24** -- the 68020's
+     * figure for its 44-word frame, which `M68030_WALK.md` records. The row is
+     * transcribed as printed, so its microcode is 62 less 50.
+     *
+     * The `RTE` rows are instructions, chosen by the frame `RTE` unstacked. A
+     * throwaway frame is priced on top of the frame behind it. **`RTE (Short
+     * Fault)` prints its no-cache case as `26(10/2/0)` under a cache case of
+     * `36(10/0/0)`**, the only row on either page whose no-cache case is less
+     * than its cache case, and `[020]`'s own row runs 43 cached and 45 worst. A
+     * digit slip for 36, taken as 36 -- the same no-cache-equals-cache shape the
+     * long fault and throwaway rows print. */
+    [ROW_BUS_FAULT_SHORT] = {"Bus Cycle Fault (Short)", {.head = 0, .tail = 0, .cache_case = 36, .no_cache_case = 38, .reads = 1, .writes = 10, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_BUS_FAULT_LONG] = {"Bus Cycle Fault (Long)", {.head = 0, .tail = 0, .cache_case = 62, .no_cache_case = 64, .reads = 1, .writes = 24, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_RTE_NORMAL] = {"RTE (Normal Four Word)", {.head = 1, .tail = 0, .cache_case = 18, .no_cache_case = 20, .reads = 4, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_RTE_SIX_WORD] = {"RTE (Six Word)", {.head = 1, .tail = 0, .cache_case = 18, .no_cache_case = 20, .reads = 4, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_RTE_THROWAWAY] = {"RTE (Throwaway)", {.head = 1, .tail = 0, .cache_case = 12, .no_cache_case = 12, .reads = 4}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_RTE_COPROCESSOR] = {"RTE (Coprocessor)", {.head = 1, .tail = 0, .cache_case = 26, .no_cache_case = 26, .reads = 7, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_RTE_SHORT_FAULT] = {"RTE (Short Fault)", {.head = 1, .tail = 0, .cache_case = 36, .no_cache_case = 36, .reads = 10, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_RTE_LONG_FAULT] = {"RTE (Long Fault)", {.head = 1, .tail = 0, .cache_case = 76, .no_cache_case = 76, .reads = 25, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
@@ -741,6 +776,12 @@ ap_m68030_timing_for_exception(ap_m68030_exception_row_t row) {
     return &TABLE[ROW_INTERRUPT_M];
   case AP_M68030_EXCEPTION_TRACE:
     return &TABLE[ROW_TRACE];
+  case AP_M68030_EXCEPTION_BUS_FAULT_SHORT:
+    return &TABLE[ROW_BUS_FAULT_SHORT];
+  case AP_M68030_EXCEPTION_BUS_FAULT_LONG:
+    return &TABLE[ROW_BUS_FAULT_LONG];
+  case AP_M68030_EXCEPTION_RTE_THROWAWAY:
+    return &TABLE[ROW_RTE_THROWAWAY];
   }
   return nullptr;
 }
@@ -805,6 +846,28 @@ ap_m68030_timing_for_selected(uint16_t instruction, uint16_t extension,
       return &TABLE[ROW_MOVEC_RN_CR_A]; /* USP, VBR, CAAR, MSP, ISP */
     }
     return nullptr;
+  }
+
+  /* `RTE`, by the format of the frame it unstacked -- `extension` carries the
+   * format number. A throwaway frame is priced on top of the one behind it, so
+   * it is the last frame read that selects. */
+  if (instruction == 0x4E73u) {
+    switch (extension) {
+    case AP_M68030_FRAME_SHORT:
+      return &TABLE[ROW_RTE_NORMAL];
+    case AP_M68030_FRAME_THROWAWAY:
+      return &TABLE[ROW_RTE_THROWAWAY];
+    case AP_M68030_FRAME_SIX_WORD:
+      return &TABLE[ROW_RTE_SIX_WORD];
+    case AP_M68030_FRAME_COPROCESSOR_MID:
+      return &TABLE[ROW_RTE_COPROCESSOR];
+    case AP_M68030_FRAME_SHORT_BUS_FAULT:
+      return &TABLE[ROW_RTE_SHORT_FAULT];
+    case AP_M68030_FRAME_LONG_BUS_FAULT:
+      return &TABLE[ROW_RTE_LONG_FAULT];
+    default:
+      return nullptr;
+    }
   }
 
   /* `CAS2`, `$0CFC` and `$0EFC` -- ahead of `CAS`, whose group they sit in with

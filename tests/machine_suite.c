@@ -25,6 +25,8 @@
 #include "machine/ap_machine.h"
 #include "model/ap_model.h"
 #include "unity.h"
+
+#include <string.h>
 #include "cpu/m68882/ap_m68882_cir.h"
 
 void setUp(void) {}
@@ -1022,6 +1024,44 @@ static void test_a_trap_costs_its_published_cache_case_warm(void) {
     TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXCEPTION, ap_machine_step(&m).status);
     TEST_ASSERT_EQUAL_UINT64(row->timing.cache_case, m.cpu.clocks - previous);
     previous = m.cpu.clocks;
+  }
+}
+
+/* §11.6.18's `RTE (Normal Four Word)` on a running machine, warm: `18(4/0/0)`,
+ * the four reads being the format word, the status register and a program
+ * counter straddling a long-word boundary. A frame is planted before every
+ * step, returning to the `RTE` itself, so each sample is one return. Until
+ * 2026-09-14 this cost its 8 clocks of bus. */
+static void test_an_rte_costs_its_published_cache_case_warm(void) {
+  const ap_m68030_table_entry_t *row =
+      ap_m68030_timing_for_selected(0x4E73u, AP_M68030_FRAME_SHORT, false);
+  TEST_ASSERT_NOT_NULL(row);
+
+  blank();
+  ap_machine_t m;
+  ap_machine_init(&m, ram, RAM_BYTES);
+  ap_machine_reset(&m, PROGRAM, STACK);
+  write_cacr(&m, CACR_EI);
+  TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM, 2u, 0x4E73u));
+
+  uint64_t previous = 0;
+  for (unsigned i = 0; i < 5u; i++) {
+    /* Planted straight into RAM: `ap_machine_write` clears both caches, which
+     * made every "warm" return fetch cold and cost a 2-clock prefetch -- 20,
+     * the first run of this test. Status register $2000, PC, format $0. */
+    static const uint8_t frame[8] = {0x20u, 0x00u, (uint8_t)(PROGRAM >> 24),
+                                     (uint8_t)(PROGRAM >> 16),
+                                     (uint8_t)(PROGRAM >> 8), (uint8_t)PROGRAM,
+                                     0x00u, 0x00u};
+    memcpy(&ram[STACK - 8u], frame, sizeof frame);
+    m.cpu.regs.isp = STACK - 8u;
+    m.cpu.regs.pc = PROGRAM;
+    ap_m68030_fetch_reset(&m.cpu.fetch, PROGRAM);
+    previous = m.cpu.clocks;
+    TEST_ASSERT_EQUAL_INT(AP_M68030_STEP_EXECUTED, ap_machine_step(&m).status);
+    if (i > 0u) { /* the first fills the cache */
+      TEST_ASSERT_EQUAL_UINT64(row->timing.cache_case, m.cpu.clocks - previous);
+    }
   }
 }
 
@@ -3063,6 +3103,7 @@ int main(void) {
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
   RUN_TEST(test_the_address_forms_compose_from_their_own_tables);
   RUN_TEST(test_a_trap_costs_its_published_cache_case_warm);
+  RUN_TEST(test_an_rte_costs_its_published_cache_case_warm);
   RUN_TEST(test_the_footnoted_memory_forms_compose_to_the_manuals_total);
   RUN_TEST(test_the_scsi_wait_loops_memory_forms_compose_from_their_tables);
   RUN_TEST(test_the_unfootnoted_memory_moves_match_both_columns);

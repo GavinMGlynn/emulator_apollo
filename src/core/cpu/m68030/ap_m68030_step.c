@@ -2705,6 +2705,25 @@ static uint32_t exception_microcode(const ap_m68030_table_entry_t *row) {
  * read's. */
 #define INTERRUPT_ACKNOWLEDGE_CLOCKS 2u
 
+/* §11.6.18's bus cycle fault rows, by the frame the fault built. A format `$7`
+ * access error frame is the 68040's and not on the page, so it keeps its bus
+ * time. */
+static uint32_t bus_fault_microcode(const ap_m68030_exception_result_t *taken) {
+  if (!taken->ok) {
+    return 0u;
+  }
+  switch (taken->frame_format) {
+  case AP_M68030_FRAME_SHORT_BUS_FAULT:
+    return exception_microcode(
+        ap_m68030_timing_for_exception(AP_M68030_EXCEPTION_BUS_FAULT_SHORT));
+  case AP_M68030_FRAME_LONG_BUS_FAULT:
+    return exception_microcode(
+        ap_m68030_timing_for_exception(AP_M68030_EXCEPTION_BUS_FAULT_LONG));
+  default:
+    return 0u;
+  }
+}
+
 /* A fault frame's bytes, assembled before any is written, so the frame can go
  * out in long words whatever field boundaries it has. The 68030's long frame is
  * the largest, 46 words. */
@@ -2827,6 +2846,7 @@ static ap_m68030_exception_result_t take_exception_with(
   ap_m68030_fetch_reset(&cpu->fetch, out.handler);
 
   out.frame_address = frame;
+  out.frame_format = (uint8_t)format;
   out.ok = true;
   return out;
 }
@@ -3091,6 +3111,7 @@ take_bus_fault_with(ap_m68030_cpu_t *cpu, unsigned vector,
   ap_m68030_fetch_reset(&cpu->fetch, out.handler);
 
   out.frame_address = frame;
+  out.frame_format = (uint8_t)format;
   out.ok = true;
   return out;
 }
@@ -3191,7 +3212,7 @@ static ap_m68030_step_status_t fault_or_unimplemented(
 
   const ap_m68030_exception_result_t taken = ap_m68030_take_bus_fault(
       cpu, AP_M68030_VECTOR_BUS_ERROR, instruction_address);
-  out->clocks += taken.clocks;
+  out->clocks += taken.clocks + bus_fault_microcode(&taken);
   return taken.ok ? AP_M68030_STEP_EXCEPTION : AP_M68030_STEP_FAULT;
 }
 
@@ -3356,6 +3377,9 @@ static bool execute_rte(ap_m68030_cpu_t *cpu, uint32_t *clocks) {
     }
     const ap_m68030_frame_format_t format =
         ap_m68030_frame_format_of((uint16_t)format_word);
+    /* §11.6.18 prices a return by the frame it unstacks, so the step's timing
+     * is told which; the last frame read is the one it prices. */
+    cpu->timing_extension = (uint16_t)format;
 
     uint32_t saved_sr = 0;
     if (!read_stack(cpu, 0u, 2u, clocks, &saved_sr)) {
@@ -3368,6 +3392,10 @@ static bool execute_rte(ap_m68030_cpu_t *cpu, uint32_t *clocks) {
        * *old* stack before the register is written. */
       ap_m68030_write_a7(&cpu->regs, ap_m68030_read_a7(&cpu->regs) + 8u);
       ap_m68030_write_sr(&cpu->regs, (uint16_t)saved_sr);
+      /* And a throwaway frame is priced on top of the frame behind it, as
+       * `[020]` §9.2.18's footnote to the same row says: "Add the time for RTE
+       * on second stack frame". */
+      cpu->timing_outcome = true;
       continue;
     }
 
@@ -6778,7 +6806,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * attempted. */
   if ((cpu->regs.pc & 1u) != 0u) {
     const ap_m68030_exception_result_t taken = ap_m68030_take_address_error(cpu);
-    out.clocks += taken.clocks;
+    out.clocks += taken.clocks + bus_fault_microcode(&taken);
     out.status = taken.ok ? AP_M68030_STEP_EXCEPTION : AP_M68030_STEP_FAULT;
     ap_m68030_charge(cpu, out.clocks);
     return out;
@@ -8178,6 +8206,14 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
     }
 
     out.clocks = microcode + operand_bus + prefetch_cost;
+
+    /* An `RTE` that passed a throwaway frame is priced by the frame behind it,
+     * above, and the throwaway's own row on top; its four reads are already in
+     * the measured bus. */
+    if (out.instruction == 0x4E73u && cpu->timing_outcome) {
+      out.clocks += exception_microcode(
+          ap_m68030_timing_for_exception(AP_M68030_EXCEPTION_RTE_THROWAWAY));
+    }
   }
 
   /* A taken branch, jump or return has already set the PC and emptied the pipe;

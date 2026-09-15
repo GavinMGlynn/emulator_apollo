@@ -598,6 +598,11 @@ typedef struct {
   uint32_t frame_address;  /* where the frame was built: the new A7 */
   uint32_t vector_address; /* VBR + vector * 4 */
   uint32_t handler;        /* the PC that was loaded */
+  /* The frame's format number, Table 8-6's high nibble of the format word. A
+   * bus fault takes the short or the long frame by where the fault fell, and
+   * §11.6.18 prices the two apart, so the site adding that price needs to know
+   * which was built. */
+  uint8_t frame_format;
 } ap_m68030_exception_result_t;
 
 [[nodiscard]] ap_m68030_exception_result_t

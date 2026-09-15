@@ -140,6 +140,11 @@ typedef enum {
   AP_M68030_EXCEPTION_INTERRUPT_I_STACK,
   AP_M68030_EXCEPTION_INTERRUPT_M_STACK,
   AP_M68030_EXCEPTION_TRACE,
+  /* §11.6.18's: the two bus fault frames, and the throwaway frame an `RTE`
+   * pays for on top of the frame behind it. */
+  AP_M68030_EXCEPTION_BUS_FAULT_SHORT,
+  AP_M68030_EXCEPTION_BUS_FAULT_LONG,
+  AP_M68030_EXCEPTION_RTE_THROWAWAY,
 } ap_m68030_exception_row_t;
 
 [[nodiscard]] const ap_m68030_table_entry_t *

@@ -459,7 +459,8 @@ static void test_every_row_is_returned_by_some_instruction(void) {
   /* The selected lookup's inputs are an extension word and an outcome, and it
    * reads only the register code and the direction bit of the one: a group B
    * code, a group A code, and each with bit 11 set, reach every combination. */
-  static const uint16_t EXTENSIONS[] = {0x0002u, 0x0801u, 0x0802u, 0x0000u};
+  static const uint16_t EXTENSIONS[] = {0x0002u, 0x0801u, 0x0802u, 0x0000u,
+                                        0x0001u, 0x0009u, 0x000Au, 0x000Bu};
   for (uint32_t word = 0; word <= 0xFFFFu; word++) {
     const ap_m68030_table_entry_t *row =
         ap_m68030_timing_for_word((uint16_t)word);
@@ -493,7 +494,9 @@ static void test_every_row_is_returned_by_some_instruction(void) {
    * by every vector against the four words vector 7 is told apart by. */
   static const ap_m68030_exception_row_t NAMED[] = {
       AP_M68030_EXCEPTION_INTERRUPT_I_STACK,
-      AP_M68030_EXCEPTION_INTERRUPT_M_STACK, AP_M68030_EXCEPTION_TRACE};
+      AP_M68030_EXCEPTION_INTERRUPT_M_STACK, AP_M68030_EXCEPTION_TRACE,
+      AP_M68030_EXCEPTION_BUS_FAULT_SHORT,   AP_M68030_EXCEPTION_BUS_FAULT_LONG,
+      AP_M68030_EXCEPTION_RTE_THROWAWAY};
   for (unsigned k = 0; k < sizeof NAMED / sizeof NAMED[0]; k++) {
     reached[ap_m68030_timing_for_exception(NAMED[k]) - table] = true;
   }
@@ -679,6 +682,11 @@ static void test_the_rows_an_extension_or_outcome_selects_are_found(void) {
       {0xEDD0u, 0x0000u, true, "BFFFO Mem (5 Bytes)", "BFFFO (A0)"},
       {0xE8C0u, 0x0000u, false, nullptr, "BFTST D0 -- the word lookup's"},
       {0xD200u, 0x0000u, false, nullptr, "ADD.B D0,D1 -- not selected at all"},
+      {0x4E73u, 0x0000u, false, "RTE (Normal Four Word)", "RTE, format $0"},
+      {0x4E73u, 0x0002u, false, "RTE (Six Word)", "RTE, format $2"},
+      {0x4E73u, 0x000Au, false, "RTE (Short Fault)", "RTE, format $A"},
+      {0x4E73u, 0x000Bu, false, "RTE (Long Fault)", "RTE, format $B"},
+      {0x4E73u, 0x0007u, false, nullptr, "RTE, format $7 -- a 68040 frame"},
   };
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
     const ap_m68030_table_entry_t *row = ap_m68030_timing_for_selected(
@@ -854,6 +862,19 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
       {"TRAPcc.W (Trap)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
       {"TRAPcc.L (Trap)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
       {"TRAPV (Trap)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      /* §11.6.18: the fault frames' refill, and every return's change of flow
+       * -- the throwaway's included, since it belongs to one. */
+      {"Bus Cycle Fault (Short)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"Bus Cycle Fault (Long)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "refill"},
+      {"RTE (Normal Four Word)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "change of flow"},
+      {"RTE (Six Word)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
+      {"RTE (Throwaway)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
+      {"RTE (Coprocessor)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "change of flow"},
+      {"RTE (Short Fault)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "change of flow"},
+      {"RTE (Long Fault)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
       {"Bcc (Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
       {"DBcc (cc False, Count Not Expired)",
        AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "it branches"},
