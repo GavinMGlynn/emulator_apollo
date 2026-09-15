@@ -5171,7 +5171,11 @@ the model table's `.mmu`", and **two of the three registers were already
 built**.* Checked in the source rather than inferred, which is the rule
 this project has now been caught by five times: `019411-A00` §4.2.1.14's
 **Cache Status Register** is `ap_boardreg.c`'s `ds5500_cache_status` with
-`HSI Present` following a fitted graphics device, and §4.2.1.18's
+`HSI Present` following a fitted graphics device *(`PROVISIONAL` since
+2026-09-15: `5952-2149` p. 10 gives the HSI connector as the Desktop
+Visualization System's and the FPA's, so a plain framebuffer may not clear the
+bit; not changed, because no instruction on the installed DS5500 volume reads
+bit 3 -- `CFG_WALK.md`, `ap_boardreg.h`)*, and §4.2.1.18's
 **Memory Present Register** is at `011400` with
 `ap_boardreg_memory_present_code` behind it — and `boardreg_suite` asserts
 it against **all 35 published configurations** of the addendum's table,

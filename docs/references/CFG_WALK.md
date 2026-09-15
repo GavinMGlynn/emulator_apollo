@@ -94,9 +94,29 @@ Product Summary) at 300 dpi, against `ap_model.c`:
 **Two citation corrections and no value changes.** Every clock, part, memory
 ceiling and display in the table agrees with the model's own page.
 
+## `5952-2149`, the July 1990 quick reference, pp. 1-16 and 67-70 read as images (2026-09-15)
+
+The descriptive half (the Series 2500, 3500/3550/4500 and 10000 product
+descriptions, pp. 3-14) and the configuration matrices (pp. 67-70) at 250 dpi.
+The rest is software ordering tables and national versions.
+
+| Page | Content | Against this core |
+| --- | --- | --- |
+| 3-6 | Series 2500: 20 MHz 68030 and 68882, **16 MB of 1 MB SIMMs in 4 MB steps**, "the option to expand memory to 64MB will become a reality with ... 4MB DRAMs"; **one** RS-232 port, three with a Multiple Serial Connector; one AT slot for the network card only; 15" 1024x800 or 19" 1280x1024 mono | the `DN2500` row's 20 MHz and 16 MB; the one-port statement is the break-out cable `[CFG]` D-4 mentions |
+| 7-8 | Series 3500/3550/4500: **"Each system contains one asynchronous serial RS-232 port"**, more through a Serial Port Expansion board; memory 4, 8, 12, 16, 24 or 32 MB on a 3500 and 8, 16, 24 or 32 on a 3550 or 4500, in 4 or 8 MB modules, "an odd number of 4MB modules may only be used in the Series 3500", at most four 8 MB modules | **disagrees with `[CFG]`'s "3 RS-232C ports"**, which `CFG_WALK.md` reconciled with this core's four DUART channels; recorded, since the model table has no serial-count field. The memory rules are a sales subset of `ap_sio.c`'s strap table, which the firmware decodes for every size including an odd-module 4500 |
+| 9-10 | 3500 and 3550 share the 25 MHz 68030, the 4500 has 33 MHz; **the DVS boards talk to the CPU board "through a ribbon-cable connector to the 32-bit HSI connector", and the FPA "also requires an HSI connector"**, so a 3500 or 3550 cannot have both; the DVS/FPA table (4500 both, 3550 40-plane DVS and no FPA, 3500 8-plane DVS only) | **the first statement of what the HSI connector carries**. `ap_boardreg.h` derives the DS5500's `HSI Present` from any display; that is now marked `PROVISIONAL` with this page, because no held software reads bit 3 (a scan of the installed DS5500 volume) |
+| 11-13 | sample configurations; the DSP4500 as a file server needs two A-ADD-SWFC controllers "because each controller supports only two disk drives"; at most four (p. 13) or six (p. 12) network controllers and two of a type, two IKON boards, one SPE | the two-drive limit matches `ap_omti`'s two units; the page contradicts itself on network controllers |
+| 14 | Series 10000 (PRISM) | none |
+| 67-68 | order matrices: DN2500 and DN3010A, DN3500/3550/4500 mono and colour; **DN3500 graphics DA0 8-plane VS, DC0/DE0 4/8-plane 1024x800, DF0 accelerated 1280x1024, DM0 mono 1280x1024; memory H01-H06 = 4, 8, 12, 16, 24, 32 MB for all three** | the matrix offers 4 MB (H01) on a 3550 and 4500 where p. 8 says 8 MB minimum; `ap_sio.c`'s 4 MB rows for both are firmware-decoded and stand |
+| 69-70 | the K special-credit codes, and the DSP3010A/3500/3550/4500 server matrix | none |
+
+**No value changes.** One reading marked `PROVISIONAL` with a citation, and one
+disagreement between the two guides recorded.
+
 ## What is owed
 
-*The model description blocks were read next (above).* The Product Summary
+*The model description blocks, then `5952-2149`'s descriptive pages and matrices,
+were read next (above).* The Product Summary
 option pages beyond those cited, the Series 10000 section, the upgrade matrices
 (pp. 331-358), and the 88-page July 1990 quick reference. *This said "The Series
 3000, 4000, 4500, 3010A and Model 3550 sections, the upgrade matrices (pp.

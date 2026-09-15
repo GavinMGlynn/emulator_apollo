@@ -255,6 +255,20 @@ typedef enum {
  * board and has none, which is what makes the bit worth deriving rather than
  * fixing.
  *
+ * **`PROVISIONAL`, and a second document now says what the connector is for.**
+ * `5952-2149`, the July 1990 quick-reference configuration guide, p. 10: the
+ * Desktop Visualization System boards "plug into the PC AT slot ... However,
+ * commands and data are sent to the boards through a ribbon-cable connector to
+ * the **32-bit HSI connector on the CPU board**. Since the floating point
+ * accelerator (FPA) card also requires an HSI connector, configurations are
+ * limited". So an HSI graphics device is a DVS board-set, not any framebuffer,
+ * and a DS5500 with a plain monochrome controller may well read this bit set.
+ * **Not changed**, because nothing constrains it: a scan of the installed
+ * DS5500 volume for instructions addressing `00010200` finds five -- three
+ * `AND.W #$0010` (the self-test's bit 4, below) and two `BTST #7` in a routine
+ * that first writes `80` and dispatches on the machine type at `$100` -- and
+ * none reads bit 3. The discriminator is a driver that does.
+ *
  * ## What the unused bits read, and the one of them that is not unused
  *
  * This block used to end "a DS5500 that runs would settle it in one read".
