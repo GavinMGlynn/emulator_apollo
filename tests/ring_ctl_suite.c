@@ -976,6 +976,189 @@ static void test_a_second_transmit_command_arms_a_second_frame(void) {
   TEST_ASSERT_EQUAL_UINT64(2u, w.station[1].frames_addressed);
 }
 
+/* **What a card sent, and whether anybody took it -- which a receive census
+ * cannot say.**
+ *
+ * `FINDINGS.md` C253 concluded that Domain/OS never answers `lcnode` from the
+ * frames a node was handed, and a frame is handed over only once some station
+ * copies it: a reply addressed to a node that did not copy it reaches no census
+ * at all. `[AEGIS]` §23.4 makes the answer to a "who" broadcast a frame
+ * addressed to its originator, so the question is the sender's to answer.
+ *
+ * Two frames through the register interface: one to a station that copies it,
+ * one to an address nobody holds. The census keeps them apart by destination
+ * and reads each outcome off the late acknowledge `[MAC]` §2.2.2.5 brings back
+ * -- copied with intend-to-copy for the first, nobody's intend-to-copy for the
+ * second, which is p. 12-34's "nacked". */
+static void test_the_card_counts_what_it_sends_and_how_each_came_back(void) {
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  static const uint32_t to[2] = {0x00ABCDEFu, 0x00BBBBBBu};
+  wired_build(&w);
+  ap_ring_station_attach_tx(&w.station[0], txbuf, sizeof txbuf);
+  ap_ring_station_set_address(&w.station[1], 0x00ABCDEFu);
+  w.station[1].receive_enabled = true;
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_XMIT_ADDR,
+                      ring_addr_reg(0x0040u));
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  ap_ring_station_originate_token(&w.station[1], AP_RING_OOB_FREE_TOKEN);
+
+  for (unsigned round = 0; round < 2u; round++) {
+    uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+    ap_ring_header_set_destination(header, to[round]);
+    ap_ring_header_set_type(header, AP_RING_TYPE_THANK_YOU);
+    ap_ring_header_set_source(header, 0x00012345u);
+    for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+      w.ctl.buffer[0x40u + i] =
+          (uint16_t)((header[i * 2u] << 8) | header[i * 2u + 1u]);
+    }
+    ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+    for (unsigned i = 0; i < 4000u; i++) {
+      wired_step(&w);
+    }
+  }
+
+  TEST_ASSERT_EQUAL_UINT(2u, w.ctl.tx_types_seen);
+  for (unsigned k = 0; k < 2u; k++) {
+    TEST_ASSERT_EQUAL_HEX16(AP_RING_TYPE_THANK_YOU, w.ctl.tx_type[k]);
+    TEST_ASSERT_EQUAL_HEX32(to[k], w.ctl.tx_destination[k]);
+    TEST_ASSERT_EQUAL_UINT(1u, w.ctl.tx_count[k]);
+  }
+  /* Taken by its addressee... */
+  TEST_ASSERT_EQUAL_UINT(1u, w.ctl.tx_copied[0]);
+  TEST_ASSERT_EQUAL_UINT(0u, w.ctl.tx_nacked[0]);
+  /* ...and wanted by nobody. */
+  TEST_ASSERT_EQUAL_UINT(0u, w.ctl.tx_copied[1]);
+  TEST_ASSERT_EQUAL_UINT(1u, w.ctl.tx_nacked[1]);
+  TEST_ASSERT_FALSE(w.ctl.tx_census_pending);
+}
+
+/* A transmitting wired ring, with the driver's buffer, the relay closed and a
+ * token on its way, ready for the command. */
+static void wired_ready_to_send(wired_t *w, uint8_t *txbuf, size_t size) {
+  wired_build(w);
+  ap_ring_station_attach_tx(&w->station[0], txbuf, size);
+  ap_ring_station_set_address(&w->station[1], 0x00ABCDEFu);
+  w->station[1].receive_enabled = true;
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(header, 0x00ABCDEFu);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00012345u);
+  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+    w->ctl.buffer[0x40u + i] =
+        (uint16_t)((header[i * 2u] << 8) | header[i * 2u + 1u]);
+  }
+  ap_ring_ctl_write16(&w->ctl, true, AP_RING_CTL_W2_XMIT_ADDR,
+                      ring_addr_reg(0x0040u));
+  ap_ring_ctl_write16(&w->ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&w->ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  ap_ring_station_originate_token(&w->station[1], AP_RING_OOB_FREE_TOKEN);
+}
+
+/* **One transmit command is one operation, however many bytes it arrives in.**
+ *
+ * `ap_board_write` is byte-wide, so Domain/OS's `move.w #$0200` reaches the card
+ * as two writes that both carry `ten`. The first queued the frame and deferred
+ * its completion; the second, queueing nothing, completed it on the spot -- the
+ * transmit interrupt fired before the frame had left, the driver read XMIT_STAT
+ * without `cpd`/`icp`, and p. 12-34's rule made that "nacked". Two booted nodes
+ * reported `NACKs 45` against `Xmit count 7` with every frame copied
+ * (`FINDINGS.md` C292). p. 12-32 makes `ten` a level and `fen` "a modifier to
+ * Transmit Enable, not a separate command", so the second byte is the same
+ * command, and it must leave the operation outstanding. */
+static void test_the_second_byte_of_a_transmit_command_does_not_complete_it(
+    void) {
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  wired_ready_to_send(&w, txbuf, sizeof txbuf);
+
+  ap_ring_ctl_write8(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0x02u);
+  ap_ring_ctl_write8(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 3u, 0x00u);
+  TEST_ASSERT_TRUE(w.station[0].tx_armed);
+  TEST_ASSERT_TRUE(w.ctl.a2.completion_deferred);
+  /* `xi` is active low: still set is still not pending. */
+  TEST_ASSERT_TRUE((w.ctl.a2.status & AP_RING_CTL_STATUS_XI) != 0u);
+
+  for (unsigned i = 0; i < 4000u && w.ctl.a2.completion_deferred; i++) {
+    wired_step(&w);
+  }
+  TEST_ASSERT_FALSE(w.ctl.a2.completion_deferred);
+  TEST_ASSERT_EQUAL_HEX16(0u, w.ctl.a2.status & AP_RING_CTL_STATUS_XI);
+  /* And what the driver then reads is p. 12-34's "copied": `cpd` and `icp`. */
+  TEST_ASSERT_EQUAL_HEX16(
+      AP_RING_CTL_XMIT_CPD | AP_RING_CTL_XMIT_ICP,
+      ap_ring_ctl_read16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u) & 0xFF00u);
+}
+
+/* **And the operation is finished by the frame coming back, not by it leaving.**
+ *
+ * `002398-04` p. 7-29 describes the transmit status as a statement about the
+ * return -- "`0200` no return (a complete pkt frame never arrived)", "`0020`
+ * protocol error (the pkt hdr with FROM ID never came back)", and "a successful
+ * transmit will have a transmit status of `0014`", `icopy|copy`, which nothing
+ * knows until the late acknowledge is back. So between the station driving its
+ * last bit and reading its own acknowledge the operation is still outstanding.
+ * *Stated as documented, not as measured*: on two booted nodes the ring hash is
+ * the same with and without this (`FINDINGS.md` C292). */
+static void test_a_transmit_is_outstanding_until_its_acknowledge_returns(void) {
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  wired_ready_to_send(&w, txbuf, sizeof txbuf);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+
+  unsigned gap = 0u;
+  for (unsigned i = 0; i < 4000u && w.ctl.a2.completion_deferred; i++) {
+    wired_step(&w);
+    if (ap_ring_station_transmitted(&w.station[0]) &&
+        !ap_ring_station_transmit_ack(&w.station[0], NULL)) {
+      /* Sent, and not yet back: the operation must still be open. */
+      TEST_ASSERT_TRUE(w.ctl.a2.completion_deferred);
+      gap++;
+    }
+  }
+  /* The window exists -- a ring is some bit times around -- and it closed. */
+  TEST_ASSERT_GREATER_THAN_UINT(0u, gap);
+  TEST_ASSERT_FALSE(w.ctl.a2.completion_deferred);
+  TEST_ASSERT_TRUE(ap_ring_station_transmit_ack(&w.station[0], NULL));
+}
+
+/* **A frame that never comes back finishes as "no return".**
+ *
+ * p. 12-31's XMIT_STS with `pe` set gives bit 12 as `ern`, "error rtn
+ * (no_return)", and p. 12-34 turns `pe` with `ern` into `RING_$SEND_STAT_T`'s
+ * "didn't return". A ring broken downstream -- here the far node's relay closed
+ * into the ring and nothing forwarding -- takes the frame away for good: the
+ * station forces a token, sends, strips until §2.1's 10.9 ms timeout, and has no
+ * acknowledge to read. The operation still ends, and says why. */
+static void test_a_frame_that_never_returns_completes_as_no_return(void) {
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  wired_ready_to_send(&w, txbuf, sizeof txbuf);
+  ap_ring_medium_set_bypass(&w.medium, w.station[1].slot, false);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+  TEST_ASSERT_TRUE(w.ctl.a2.completion_deferred);
+
+  const unsigned bound =
+      AP_RING_TOKEN_LOSS_TIMEOUT_BITS + AP_RING_STRIP_TIMEOUT_BITS + 8192u;
+  for (unsigned i = 0; i < bound && w.ctl.a2.completion_deferred; i++) {
+    ap_ring_station_drive(&w.station[0], &w.medium);
+    ap_ring_medium_advance(&w.medium);
+    ap_ring_station_receive(&w.station[0], &w.medium);
+    ap_ring_ctl_poll_ring(&w.ctl);
+  }
+  TEST_ASSERT_FALSE(w.ctl.a2.completion_deferred);
+  TEST_ASSERT_FALSE(ap_ring_station_transmit_ack(&w.station[0], NULL));
+  TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_XMIT_PE | AP_RING_CTL_XMIT_ERN,
+                          ap_ring_ctl_read16(&w.ctl, true,
+                                             AP_RING_CTL_BANK_STATUS + 2u) &
+                              0xFF00u);
+}
+
 /* **What the card delivered, counted where the station's own counters cannot
  * see it.**
  *
@@ -1276,6 +1459,10 @@ int main(void) {
   RUN_TEST(test_a_received_frame_lands_at_rcv_addr_and_raises_ri);
   RUN_TEST(test_a_second_transmit_command_arms_a_second_frame);
   RUN_TEST(test_the_card_counts_and_types_what_it_delivers);
+  RUN_TEST(test_the_card_counts_what_it_sends_and_how_each_came_back);
+  RUN_TEST(test_the_second_byte_of_a_transmit_command_does_not_complete_it);
+  RUN_TEST(test_a_transmit_is_outstanding_until_its_acknowledge_returns);
+  RUN_TEST(test_a_frame_that_never_returns_completes_as_no_return);
   RUN_TEST(test_only_the_transmit_command_values_queue_a_frame);
   RUN_TEST(test_the_command_registers_drive_the_relay_and_the_receiver);
   RUN_TEST(test_the_idle_words_are_the_manuals_bits_and_not_magic);

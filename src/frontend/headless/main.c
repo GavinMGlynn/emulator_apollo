@@ -2255,6 +2255,22 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
       fprintf(out, " (+%u past the census)", board[i].ring.rx_types_dropped);
     }
     fprintf(out, "\n");
+    /* And what it *sent*, which the receive census cannot see: a reply nobody
+     * copied is never deposited anywhere (`ap_ring_ctl.h`). */
+    fprintf(out, "  node %u  ring  sent", i);
+    for (unsigned k = 0; k < board[i].ring.tx_types_seen; k++) {
+      fprintf(out, "  %04X to %08X x%u (copied %u wacked %u nacked %u)",
+              board[i].ring.tx_type[k], board[i].ring.tx_destination[k],
+              board[i].ring.tx_count[k], board[i].ring.tx_copied[k],
+              board[i].ring.tx_wacked[k], board[i].ring.tx_nacked[k]);
+    }
+    if (board[i].ring.tx_types_seen == 0u) {
+      fprintf(out, " none");
+    }
+    if (board[i].ring.tx_types_dropped > 0u) {
+      fprintf(out, " (+%u past the census)", board[i].ring.tx_types_dropped);
+    }
+    fprintf(out, "\n");
     fprintf(out,
             "  node %u  ring  XMIT_CMD %u write(s), %u with ten, %u rising\n",
             i, board[i].ring.a2.xmit_cmd_writes, board[i].ring.a2.xmit_cmd_ten,
@@ -6476,6 +6492,17 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
       printf(" %04X x%u", board->ring.rx_type[k], board->ring.rx_type_count[k]);
     }
     if (board->ring.rx_types_seen == 0u) {
+      printf(" none");
+    }
+    printf("\n");
+    printf("  ring sent   ");
+    for (unsigned k = 0; k < board->ring.tx_types_seen; k++) {
+      printf("  %04X to %08X x%u (copied %u wacked %u nacked %u)",
+             board->ring.tx_type[k], board->ring.tx_destination[k],
+             board->ring.tx_count[k], board->ring.tx_copied[k],
+             board->ring.tx_wacked[k], board->ring.tx_nacked[k]);
+    }
+    if (board->ring.tx_types_seen == 0u) {
       printf(" none");
     }
     printf("\n");

@@ -123,11 +123,38 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
   if (!ap_ring_station_queue_frame(ctl->station, &fields)) {
     return false;
   }
+  /* The transmit census (`ap_ring_ctl.h`): what went out, by type and
+   * destination, counted only once the station has accepted it. */
+  {
+    const uint16_t type = ap_ring_header_type(header);
+    const uint32_t destination = ap_ring_header_destination(header);
+    unsigned slot = 0u;
+    while (slot < ctl->tx_types_seen &&
+           (ctl->tx_type[slot] != type ||
+            ctl->tx_destination[slot] != destination)) {
+      slot++;
+    }
+    ctl->tx_census_pending = false;
+    if (slot == ctl->tx_types_seen &&
+        ctl->tx_types_seen < AP_RING_CTL_TYPE_CENSUS) {
+      ctl->tx_type[slot] = type;
+      ctl->tx_destination[slot] = destination;
+      ctl->tx_types_seen++;
+    }
+    if (slot < ctl->tx_types_seen) {
+      ctl->tx_count[slot]++;
+      ctl->tx_census_slot = slot;
+      ctl->tx_census_pending = true;
+    } else {
+      ctl->tx_types_dropped++;
+    }
+  }
   /* The previous frame's outcome is not this one's, and the station has already
    * dropped it. Both sides forget together or a driver reads a stale `cpd`. */
   ctl->tx_ack_seen = false;
   ctl->a2.xmit_status = (uint16_t)(
-      ctl->a2.xmit_status & (uint16_t) ~(AP_RING_CTL_XMIT_CPD |
+      ctl->a2.xmit_status & (uint16_t) ~(AP_RING_CTL_XMIT_PE |
+                                         AP_RING_CTL_XMIT_CPD |
                                          AP_RING_CTL_XMIT_WAK |
                                          AP_RING_CTL_XMIT_ICP |
                                          AP_RING_CTL_XMIT_PKE));
@@ -361,10 +388,37 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
    * that started it.** `RING.md` 73b's "until `ap_ring_station` drives it",
    * now that it can: the duration is the frame's own length at the ring's bit
    * rate, and nothing here chooses a number. */
+  /* **And "carried" means back again, not sent.** This finished the operation
+   * once the station had *driven* the last bit, and the late acknowledge that
+   * makes the transmit status arrives only when the frame has been all the way
+   * round -- so a driver taking the interrupt read `cpd` and `icp` clear, which
+   * p. 12-34's own rule makes "nacked" ("NOT pe AND NOT icp"). Measured on two
+   * booted nodes: `netstat -l` reported `NACKs 45` against `Xmit count 7` while
+   * every frame had been copied (`FINDINGS.md` C292).
+   *
+   * `002398-04` p. 7-29 says the status is a statement about the return: `2000`
+   * busy, "`0200` no return (a complete pkt frame never arrived)", "`0020`
+   * protocol error (the pkt hdr with FROM ID never came back)", and "a
+   * successful transmit will have a transmit status of `0014`" -- `icopy|copy`,
+   * which nothing can know until the frame is back. So the operation completes
+   * when the station has read its own late acknowledge, or, if it stops
+   * stripping without one, as p. 12-31's `pe` layout's **`ern` "error rtn
+   * (no_return)"** -- which p. 12-34 turns into "didn't return". */
   if (ctl->a2.completion_deferred &&
       ap_ring_station_transmitted(ctl->station)) {
-    ctl->a2.completion_deferred = false;
-    ring_ctl_complete_operation(&ctl->a2);
+    const bool returned = ap_ring_station_transmit_ack(ctl->station, NULL);
+    const bool abandoned = !returned && !ctl->station->stripping;
+    if (abandoned) {
+      ctl->a2.xmit_status = (uint16_t)(
+          (ctl->a2.xmit_status &
+           (uint16_t) ~(AP_RING_CTL_XMIT_CPD | AP_RING_CTL_XMIT_WAK |
+                        AP_RING_CTL_XMIT_ICP | AP_RING_CTL_XMIT_PKE)) |
+          AP_RING_CTL_XMIT_PE | AP_RING_CTL_XMIT_ERN);
+    }
+    if (returned || abandoned) {
+      ctl->a2.completion_deferred = false;
+      ring_ctl_complete_operation(&ctl->a2);
+    }
   }
   /* **`[MAC]` §2.2.2.5's read-back, folded into XMIT_STAT.** The frame this
    * node sent has been round the ring and back; the late acknowledge it carries
@@ -404,6 +458,20 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
       }
       if ((ack & AP_RING_LATE_INTEND_TO_COPY) != 0u) {
         ctl->a2.xmit_status |= AP_RING_CTL_XMIT_ICP;
+      }
+      /* The census row this frame was counted in, with its outcome. */
+      if (ctl->tx_census_pending && ctl->tx_census_slot < ctl->tx_types_seen) {
+        const unsigned slot = ctl->tx_census_slot;
+        if ((ack & AP_RING_LATE_COPIED) != 0u) {
+          ctl->tx_copied[slot]++;
+        }
+        if ((ack & AP_RING_LATE_WAIT_ACK) != 0u) {
+          ctl->tx_wacked[slot]++;
+        }
+        if ((ack & AP_RING_LATE_INTEND_TO_COPY) == 0u) {
+          ctl->tx_nacked[slot]++;
+        }
+        ctl->tx_census_pending = false;
       }
       if ((ack & AP_RING_LATE_ERROR) != 0u) {
         ctl->a2.xmit_status |= AP_RING_CTL_XMIT_PKE;
@@ -1578,8 +1646,24 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
        *
        * `$6` keeps completing unconditionally, which is what findings 66 and
        * 67 measured across all four of its sites. `RING.md` 123. */
-      if ((value & 0x0400u) != 0u ||
-          ((value & 0x0200u) != 0u && !w->loopback_enabled)) {
+      /* **But not an operation the ring is still carrying.** `ten` is a level
+       * and `fen` "a modifier to Transmit Enable, not a separate command"
+       * (p. 12-32), which is why a frame queues only on the rising edge -- and
+       * a completion is the same event seen from the other end, so it owes the
+       * same rule. `ap_board_write` is byte-wide, so one `move.w #$0200` is two
+       * writes here that both carry `ten`: the first queued the frame and
+       * deferred, and the second, queueing nothing, completed the operation on
+       * the spot. The driver was woken before its frame had left, read
+       * XMIT_STAT without `cpd`/`icp`, and counted a NACK -- `netstat -l` gave
+       * `NACKs 45` against `Xmit count 7` with every frame copied, and delaying
+       * the deferred completion changed nothing at all, because this one had
+       * already happened (`FINDINGS.md` C292). A write that repeats the level,
+       * or forces it, while the operation is outstanding leaves it outstanding;
+       * the paths with no cable never defer, so the ring ROM's `$2`/`$6`
+       * sequence keeps findings 66 and 67's immediate completion. */
+      if (!w->completion_deferred &&
+          ((value & 0x0400u) != 0u ||
+           ((value & 0x0200u) != 0u && !w->loopback_enabled))) {
         if (ring_ctl_defer_completion(ctl, w, queued_this_command)) {
           /* The station has the frame; the ring finishes the operation. */
           w->completion_deferred = true;

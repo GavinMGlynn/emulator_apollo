@@ -17840,3 +17840,81 @@ actually sits; the block headers settled it.
 *Verification*: `volume_suite` 9 -> 12, with the fixtures rebuilt to carry block
 headers so they test a reader that *finds* the labels rather than one that
 assumes where they are. `nodeid_suite` and `check_frontend_flags.py` likewise.
+
+## C292 -- every transmit read as NACKed, because the second byte of the command completed it
+
+C253 left `lcnode`'s silence at "Domain/OS never answers", read off a census of
+the frames each node was *handed*. That census counts only frames a station
+copied, so a reply nobody copied could not appear in it -- and the same run had
+node 1 transmit 52 frames against node 0's 33 deposits. Before measuring
+anything the documents were read for what the exchange should look like:
+`[AEGIS]` §23.4 (the ASKNODE "who" broadcast: the first node to receive it
+answers the originator and propagates it), §22.1.1.1 and §23.1.2 (the type mask
+and `NETSVC`), and the `lcnode`, `netsvc` and `netstat` command references.
+
+### Four readings, three refuted by the nodes' own reports
+
+    node 0  ring  sent  0090 to 00000000 x7 (copied 6 ...)  0094 to 00000000 x1 ...  0090 to 00000002 x2 ...
+    $ /com/netsvc
+    Network operations allowed: ALL
+    Network ID: 0
+
+A **transmit census** keyed by type and destination, with each frame's outcome
+off its own late acknowledge, shows no node ever sends a thank-you (`20`): the
+reply was not lost, it was never sent. `netsvc` refutes the service mask and the
+network ID on both nodes. The fourth reading came from `netstat -l`, which prints
+the operating system's own ring counters:
+
+    Net I/O:   total= 7   rcvs = 0   xmits = 7
+    Xmit count  7    NACKs  45
+
+### NACKs on frames the wire says were copied
+
+`002398-04` p. 12-34 gives `RING_$SEND_STAT_T`'s rule: "nacked" is `NOT pe AND
+NOT icp`. `RING_$SENDP` (`domain_os7` kernel, disassembled from the volume's own
+image at `3C3FF400`) writes `#$200` to XMIT_CMD, waits on the eventcount, clears
+the register and reads it back at `3C4AF38A` with `andi.w #$ff00` /
+`cmpi.w #$5000`. So the driver was reading XMIT_STAT before `cpd`/`icp` were in
+it.
+
+**The obvious fix was made first and changed nothing.** Completion was deferred
+until the station had *driven* its last bit, where p. 7-29 describes a status
+that is only known once the frame is back ("a successful transmit will have a
+transmit status of `0014`"). Making it wait for the acknowledge gave a
+byte-identical run: same ring hash, same 11,544 reads. An invariance means the
+change is not on the path.
+
+**The path was the second byte.** `ap_board_write` is byte-wide, so one
+`move.w #$0200` is two writes to `+402` that both carry `ten` -- the XMIT_CMD log
+had said so all along, `104 with ten, 52 rising`. The first queued the frame and
+deferred; the second queued nothing, so it completed the operation at once and
+the interrupt woke the driver before its frame had left. p. 12-32 makes `ten` a
+level and `fen` "a modifier to Transmit Enable, not a separate command", which
+is why a frame queues only on the rising edge (C247); a completion is the same
+event from the other end. A repeated or forced write while the operation is
+deferred now leaves it deferred.
+
+    after:  Xmit count  8    NACKs  0      (both nodes; xmits 8, then 9)
+
+**A/B, because two changes were in the tree.** With the gate alone -- the
+acknowledge wait reverted in a copy of the tree -- the run is byte-identical to
+the one with both (`ring hash 6E3751C12556695A`). The gate is the fix; the
+acknowledge wait stays because p. 7-29 documents it, and says so.
+
+Unchanged and checked: the ring ROM self-test on both revisions, 7,263,778
+steps and 1,321,914 reads / 927,828 writes; the DN3500 identity boot
+`7048E8ED74D015CF` (no ring fitted).
+
+### What is left: `rcvs = 0`, and the driver says where to look
+
+Both nodes still count **no receives** and no receive errors against 9 and 10
+deposits each raising `ri`, so the frames are dropped quietly above the card.
+`RING8_$INT` latches the receive 8254s with `$C200`/`$C400`, reads status, lsb and
+msb, and reloads both with `FFFF`; `RING8_$INT_DEFERRED` computes the header as
+`FFFF` - count + 4 (3 if NULL COUNT) and the data as `FFFF` - count + 1 (0 if
+NULL COUNT), and passes those lengths to `NET_IO_$PUT_IN_SOCK`. `[8254]` p. 6-157
+loads a written count "on the next CLK pulse. This CLK pulse does not decrement
+the count", and Figure 12 clears NULL COUNT only then; `ap_i8254` loads at the
+write. For the 98-byte header-only request this core hands the driver **102 and
+1**; the datasheet, with the header counter three clocks short (`RING.md` 80),
+gives **98 and 0**. Recorded before it is run, as `RING.md` 145c.

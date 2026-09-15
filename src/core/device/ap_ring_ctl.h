@@ -788,6 +788,35 @@ typedef struct {
   unsigned rx_type_count[AP_RING_CTL_TYPE_CENSUS];
   unsigned rx_types_seen;
   unsigned rx_types_dropped;
+
+  /* **The transmit census, because the receive one cannot see a lost reply.**
+   *
+   * `FINDINGS.md` C253 read "Domain/OS never answers" off the receive census:
+   * no `20` thank-you among the frames a node was *handed*. But a census of
+   * deposits counts only frames a station copied, and a reply nobody copied is
+   * invisible to it. The same run's counters say that may be what happened --
+   * node 1 transmitted 52 frames and node 0 copied 33, all broadcasts -- so the
+   * question "did the far node send a reply?" belongs to the sender's side.
+   *
+   * `[AEGIS]` §23.4 says what to look for: a node answering an ASKNODE "who"
+   * broadcast "returns a response to the originating node, and rebroadcasts or
+   * propagates the 'who's there' packet". Keyed by type **and** destination,
+   * because a reply is the one frame here that is addressed, and with the late
+   * acknowledge each frame came back with (`[MAC]` §2.2.2.5): `copied` is
+   * Figure 2-8's copied bit, `nacked` is nobody's intend-to-copy, and a frame
+   * whose field never came back is neither. */
+  uint16_t tx_type[AP_RING_CTL_TYPE_CENSUS];
+  uint32_t tx_destination[AP_RING_CTL_TYPE_CENSUS];
+  unsigned tx_count[AP_RING_CTL_TYPE_CENSUS];
+  unsigned tx_copied[AP_RING_CTL_TYPE_CENSUS];
+  unsigned tx_wacked[AP_RING_CTL_TYPE_CENSUS];
+  unsigned tx_nacked[AP_RING_CTL_TYPE_CENSUS];
+  unsigned tx_types_seen;
+  unsigned tx_types_dropped;
+  /* The census row of the frame still in flight, whose acknowledge has not
+   * come back yet; meaningful only while `tx_census_pending`. */
+  unsigned tx_census_slot;
+  bool tx_census_pending;
 } ap_ring_ctl_t;
 
 /* Join a controller to a station on a medium. Both pointers are borrowed and

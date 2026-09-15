@@ -5421,6 +5421,15 @@ Only after the reference core is proven, and only under an identity harness.
       `22222` ran on a machine calling itself `12345` and Domain/OS declined to
       run as a node its disk contradicts. Given its own node the same volume
       reaches `Starting standard daemons:.`, hash `5671D8D76ACDC046`.
+      **2026-09-15: `lcnode`'s silence narrowed to the receive path, and a
+      transmit defect found on the way** (`FINDINGS.md` C292). A transmit census
+      shows no node ever sends a thank-you; `netsvc` gives `ALL` and network ID
+      0 on both nodes; `netstat -l` gave `NACKs 45` against `Xmit count 7`. The
+      second byte of each `move.w #$0200` completed the transmit before the
+      frame left -- fixed, `NACKs 0`. What remains is `rcvs = 0` with no receive
+      error counted: `RING8_$INT_DEFERRED` takes the packet lengths from the
+      receive 8254s, and `[8254]` p. 6-157's load-on-the-next-clock is not what
+      `ap_i8254` does (`RING.md` 145c). **Next: that part, then the run.**
 
 ## The `002398-04` whole-document walk
 
