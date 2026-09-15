@@ -11,7 +11,7 @@ describe the releases by name.
 | `005809-A03` SR10.1, Dec 88 | 256 | text | **§2.1 read** |
 | `005809-A05` SR10.2, Nov 89 | 166 | text | index only |
 | `018901-A00` SR10.4, Mar 92 | 202 | **none** | `018901-A00_WALK.md`, §1.4.1 read |
-| `019534-A00` SR10.4 addendum | 5 | **none** | owed |
+| `019534-A00` SR10.4 addendum | 5 | **none** | **read whole, 5/5 as 400 dpi images (2026-09-15)** -- below; *was "owed"* |
 
 ## SR9.7 §1.4.2 closes a question the Design Principles walk left open
 
@@ -90,9 +90,31 @@ makes the absence a documented fact rather than an inference, and sharpens
 document" to "the handbook exists, is cited twice by other Apollo manuals, and
 is not public".
 
+## The SR10.4 addendum, `019534-A00`, read whole
+
+Five pages, March 1992, "information that was unavailable when ...
+`018901-A00` was printed". Page 1 is a *read me first* sheet and page 5 the
+back cover. Pages 2-4, item by item:
+
+| Item | Against this project |
+| --- | --- |
+| SysV validated to OSF AES/OS Revision A | none |
+| the Software Release Bulletin is shipped `compress(1)`ed in `/install/doc/apollo/os.v.10.4__software_release_bulletin.Z`, read with a `zcat` link to `/usr/apollo/bin/compress` | a file on the installed volumes, not needed |
+| "Warnings to ignore": installing onto a disk that holds the authorized area prints `can't copy a file or tree to itself (US/file utility)` for two documents, and they "are indeed installed" | **worth recognising on an install console here** -- a warning this project's install scripts could otherwise stop on |
+| `/usr/X11` link-to-copy conversion fails; delete the links first or install twice | none |
+| the `/lib/x*.r4` X libraries are stamped `RUNTYPE=bsd4.3` and run under SysV too | none |
+| **Series 425e with 425 MB disks intermittently fails to boot with crash status `8002B`** | a disk-manager status (`0008002B` by `002398-01` ch. 4's layout, past that 1983 list's `00080024`); a 68040 HP machine, not a model here. Recognisable if a DS5500 boot ever prints it |
+| `/usr/include` is not installed by the `sys5.3_medium` templates | none |
+| **`018901-A00` §2.8 is corrected: an a88k magtape kit is six tapes, `MT_STD_SFW_1`-`6`, plus `CRTG_STD_SFW_BOOT_1`** | the cartridge boot volume beside magtape media that `008860-A03_WALK.md` records from chapter 1 |
+| installing from an `mrgri`-merged authorized area onto a Series 10000 needs a `xar`-combined `x11lib` before reboot | none -- a88k |
+
+**Nothing for the core**, and one installer message and one crash status are
+now recognisable.
+
 ## What is owed
 
-SR10.0 Beta 2 and SR10.2 beyond their indexes, everything in SR10.1 outside
-§2.1, and the five-page SR10.4 addendum — which has **no text layer** and is
-therefore five renders, the cheapest scanned document on the shelf and the one
-closest to the release this project runs.
+SR10.0 Beta 2 and SR10.2 beyond their indexes, and everything in SR10.1 outside
+§2.1. *The addendum was read next (above); this also listed "the five-page SR10.4
+addendum — which has **no text layer** and is therefore five renders, the
+cheapest scanned document on the shelf and the one closest to the release this
+project runs."*
