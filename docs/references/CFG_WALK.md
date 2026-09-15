@@ -75,10 +75,32 @@ report names `sio1 A` "the keyboard". Four channels, one of them the keyboard,
 three RS-232C ports — the guide's number and this core's arrangement are the
 same statement.
 
+## Every model's description block, read as images (2026-09-15)
+
+Each section's Description page (and, where the model table cites it, the
+Product Summary) at 300 dpi, against `ap_model.c`:
+
+| Page | Model | Against `ap_model.c` |
+| --- | --- | --- |
+| A-12 | the *HP-Apollo Workstation Specifications and Graphics Options* overview table | **the table is p. A-12, not A-11** -- p. A-11 is DSEE, DDE and Open Dialogue. Five citations in `ap_model.c`, one in `ap_board.c`, one in `model_suite.c` and the `--list-models` golden said A-11; all corrected. Its figures are as the row comments quote them: 2500 20 MHz 4-16 MB, 3500/3550 25 MHz 4-32 MB, 4500 `MC68030@30MHZ` 4-32 MB |
+| D-4, D-5 | Series 2500 | 20 MHz 68030 and 68882, 4 MB expandable to 16, 15" 1024x800 or 19" 1280x1024 mono, 3 RS-232C on a break-out cable, SCSI; D-5's ordering line is the one the DN2500 row quotes, and Opt. DL0/DM0 are the two controllers. Agrees |
+| D-13, D-19, D-26 | Model 3010A mono, colour, server | 12 MHz 68020 and 68881, 4 MB expandable to **8 MB, "system supports only one memory board"**, one RS-232C. The `DN3000` row's 12 MHz and 8 MB agree; the 3010A has no row |
+| D-30 | Model 3040, rack-mounted | the same 3000 board, 15" 4-plane 1024x800 colour. No row |
+| D-64 | Model 3540, rack-mounted | 25 MHz 68030 and 68882, 4 or 8 MB to 32, 3 RS-232. No row |
+| D-77, D-86, D-96 | Model 3550 mono, colour, server | as the `DN3550` and `DSP3550` rows quote them, page for page; the colour model adds 15" 8-plane 1024x800 and 19" 8- or 40-plane 1280x1024, and D-77 says "can be upgraded to a Series 4500 by installing a CPU board upgrade kit" |
+| D-103, D-104 | Series 4000 options | A-ADD-SWFC (SCSI/Winchester/floppy controller, "rev 25 (or greater) CPU"), 4 and 8 MB add-on boards, **A-ADD-FPA** the floating-point accelerator, which needs SR10.1 or later under SR10 |
+| D-108, D-109, D-116, D-126 | Series 4500 mono, colour, server | 33 MHz 68030 and 68882, **8 or 16 MB base** to 32, 3 RS-232C, 19" 1280x1024 mono. **The ordering line the `DN4500` row quotes is p. D-109, not D-108**; D-108 is the Description, and its "clocked at 33 MHz" is a third statement against the overview's 30. Corrected. The row's "4-32 MB" is the overview's figure; the Description's base sizes are 8 and 16 |
+
+**Two citation corrections and no value changes.** Every clock, part, memory
+ceiling and display in the table agrees with the model's own page.
+
 ## What is owed
 
-The Series 3000, 4000, 4500, 3010A and Model 3550 sections, the upgrade matrices
-(pp. 331-358), and the 88-page July 1990 quick reference. **Every model section
+*The model description blocks were read next (above).* The Product Summary
+option pages beyond those cited, the Series 10000 section, the upgrade matrices
+(pp. 331-358), and the 88-page July 1990 quick reference. *This said "The Series
+3000, 4000, 4500, 3010A and Model 3550 sections, the upgrade matrices (pp.
+331-358), and the 88-page July 1990 quick reference."* **Every model section
 should be read the way this one was**: description block, then options, then
 against a hardware manual — because the description blocks describe configured
 systems and will contradict the hardware on their own.

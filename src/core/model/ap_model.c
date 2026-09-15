@@ -12,7 +12,9 @@
  *  [CFG]  HP-Apollo Products Configuration Guide (Dec 89). Cited by its
  *         page-level "Product Summary" sections, which give ordering-level CPU
  *         and FPU part numbers and clocks, and by the "HP-Apollo Workstation
- *         Specifications and Graphics Options" overview table at p. A-11.
+ *         Specifications and Graphics Options" overview table at p. A-12.
+ *         (This said p. A-11, which is the DSEE page before it -- corrected
+ *         2026-09-15 from the page image; the table's footer reads A - 12.)
  *  [QREF] Apollo Quick-Reference Configuration Guide (5952-2149, Jul 90).
  *  [MAME] ext/mame src/mame/apollo/apollo.cpp machine configurations, used as
  *         a cross-check only -- the oracle is a model, not the hardware.
@@ -28,7 +30,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         /* "32-bit MC68030 20 MHz CPU with MC68882 20 MHz Floating Point
          * Processor ... On-board monochrome graphics ... SCSI Bus supporting up
          * to 7 devices" -- [CFG] Series 2500 Product Summary. RAM 4-16 MB and
-         * the 15" mono 1024x800 / 19" mono 1280x1024 panels -- [CFG] p. A-11. */
+         * the 15" mono 1024x800 / 19" mono 1280x1024 panels -- [CFG] p. A-12. */
         .cpu = AP_CPU_M68030,
         .cpu_hz = 20000000u,
         .mmu = AP_MMU_M68030,
@@ -36,7 +38,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .display = AP_DISPLAY_MONO_1024X800,
         .oracle = AP_ORACLE_PAPER_ONLY,
         .ram_base = 0x4000000u,
-        .ram_max_bytes = 0x1000000u, /* 4-16 MB [CFG] p. A-11 */
+        .ram_max_bytes = 0x1000000u, /* 4-16 MB [CFG] p. A-12 */
         .has_ring = true,
         .has_active_low_parity_lanes = true,
         .provisional = "has_active_low_parity_lanes: true, on the oracle's "
@@ -54,7 +56,7 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
                        "pattern with ANDI.L #$04FFFFFF,D1 at 1F4CE and again "
                        "at 1F4FA. A base of 04000000 with a 00FFFFFF offset "
                        "mask is a 16 MB region at 04000000, which is what the "
-                       "table holds and what [CFG] p. A-11's 4-16 MB says "
+                       "table holds and what [CFG] p. A-12's 4-16 MB says "
                        "independently. The reset SSP 040007D0 agrees a third "
                        "time. No Series 2500 allocation table exists on disk "
                        "or on the web, and the oracle has no 2500 driver, so "
@@ -163,10 +165,11 @@ static const ap_model_t k_models[AP_MODEL_COUNT] = {
         .name = "dn4500",
         .description = "DN4500 workstation, faster 68030 with Matrox graphics",
         /* "32-bit MC68030 33 MHz CPU with MC68882 33 MHz Floating Point
-         * Processor" -- [CFG] Series 4500 Product Summary p. D-108, corroborated
+         * Processor" -- [CFG] Series 4500 Product Summary p. D-109 (this said D-108,
+         * which is the Description page: "CPU: MC68030, clocked at 33 MHz"), corroborated
          * by [CFG]'s narrative "the 33MHz MC68030".
          *
-         * [CFG]'s own overview table at p. A-11 says "MC68030@30MHZ" for Series
+         * [CFG]'s own overview table at p. A-12 says "MC68030@30MHZ" for Series
          * 4500. 33 MHz is taken as correct: two independent statements against
          * one, the ordering-level summary outranks the marketing summary, and
          * Motorola never binned a 30 MHz 68030 (16/20/25/33/40/50). Recorded as

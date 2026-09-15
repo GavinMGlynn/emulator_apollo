@@ -367,7 +367,7 @@ static const ap_board_placement_t DS2500_PLACEMENT[] = {
     {0x020C00u, 2u * AP_DMA_RANGE, AP_BOARD_REGION_DMA, AP_DMA1_ADDR},
 };
 
-/* `[CFG]` p. A-11 gives 4-16 MB, and the firmware sizes it: `OR.L
+/* `[CFG]` p. A-12 gives 4-16 MB, and the firmware sizes it: `OR.L
  * #$04000000,D1` at `$1F49A` puts the base in, and `ANDI.L #$04FFFFFF,D1` at
  * `$1F4CE` masks the walk -- a 16 MB region at `04000000`. */
 static const ap_board_map_t DS2500_MAP = {

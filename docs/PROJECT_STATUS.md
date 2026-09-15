@@ -21289,6 +21289,9 @@ Kept rather than discarded, so a future contradiction has a documented history.
   independent statements against one, the ordering-level summary outranks the
   marketing summary, and Motorola never binned a 30 MHz 68030 (16/20/25/33/40/50
   only). Both figures divide the time base, so nothing rests on it structurally.
+  *Page numbers corrected 2026-09-15 from the page images: the Product Summary
+  is p. D-109 (p. D-108 is the Description, which gives "clocked at 33 MHz" a
+  third time) and the overview table is p. A-12, not A-11 (`CFG_WALK.md`).*
   If a probe ever contradicts 33 MHz, that overview table is the reason to
   revisit.
 - **DSP4500 is headless despite its heading.** `[CFG]` heads the section
@@ -34509,7 +34512,8 @@ A base of `04000000` under an `00FFFFFF` offset mask is **16 MB at
 `0x04000000`** -- which is what the table already held, now for a reason rather
 than by inference. Three independent witnesses agree: the OR/AND pair above,
 `[CFG]` p. A-11's "4-16MB", and the reset SSP `040007D0` that corrected the base
-in the first place. The `PROVISIONAL` marker on `ram_base` and `ram_max_bytes`
+in the first place. *(The table is on p. A-12; corrected in the code 2026-09-15,
+`CFG_WALK.md`.)* The `PROVISIONAL` marker on `ram_base` and `ram_max_bytes`
 is removed; the one on `has_active_low_parity_lanes` stays, since that PROM
 makes no forced-parity write anywhere and nothing tests it.
 

@@ -313,7 +313,7 @@ static void test_every_models_mmu_agrees_with_its_cpus_features(void) {
  *     1F4FA  ANDI.L  #$04FFFFFF,D1    again, on the second pass
  *
  * A base of `04000000` under a `00FFFFFF` offset mask is a 16 MB region at
- * `04000000`. `[CFG]` p. A-11's "4-16MB" agrees on the size independently, and
+ * `04000000`. `[CFG]` p. A-12's "4-16MB" agrees on the size independently, and
  * the reset SSP `040007D0` agrees on the base a third time.
  *
  * Asserted here rather than left to the golden because the golden records what
