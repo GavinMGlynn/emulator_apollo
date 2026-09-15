@@ -49,6 +49,17 @@ static uint16_t ring_ctl_addr(uint16_t reg) {
  * So the minimum §2.2.2 allows is used, which is the only length that is
  * evidenced rather than chosen: 12 bytes. A longer header needs a source that
  * says where its length comes from, and is a named gap rather than a guess. */
+/* The count a counter will run to: its counting element's, or -- for a count the
+ * driver has just written and no CLK pulse has yet loaded -- the one waiting in
+ * CR. `[8254]` p. 6-157: "the initial count will be loaded on the next CLK
+ * pulse", so between the write and the transfer that starts counting, CR is the
+ * only place the driver's number is. */
+static unsigned ring_ctl_programmed_count(const ap_i8254_t *pit,
+                                          unsigned index) {
+  const ap_i8254_counter_t *c = &pit->counter[index];
+  return c->load_pending ? c->latch : c->counter;
+}
+
 static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
   const uint16_t base = ring_ctl_addr(ctl->a2.slot_002);
   if ((size_t)base + AP_RING_CTL_XMIT_HEADER_WORDS > AP_RING_CTL_BUFFER_WORDS) {
@@ -58,11 +69,35 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
    * p. 12-29 names and finding 100 gave units to -- `XMT_HDR` header words and
    * `XMT_PKT` total words. See `ap_ring_ctl.h`. A zero header count is a card
    * nothing has programmed, which is the ring ROM's own self-test, and the
-   * §2.2.2 minimum is used there exactly as before. */
+   * §2.2.2 minimum is used there exactly as before.
+   *
+   * *Read from CR while the load is pending.* This read the counting element
+   * alone, which was the driver's number only while this core loaded counts at
+   * the write; with the part corrected to load on the next CLK pulse, the first
+   * two-node run sized frames from whatever the element held before -- claims
+   * fell from 8 to 3 a node (`I8254_WALK.md`). */
+  /* **And a count of N moves N + 1 words.** The transfer runs until the counter
+   * is exhausted, and under `[8254]` p. 6-157 a counter loaded with N is
+   * exhausted after N + 1 pulses -- the load pulse, then N decrements -- which
+   * is the ring ROM's own table too (`$3FF` loaded, 1024 events). The frame
+   * settles it: an `lcnode` request's own software header gives its header
+   * length as `$005C`, 92 bytes, at `+$10`, while the driver programmed
+   * `XMT_HDR` = `$002D`; 45 words sent it two bytes short, and the far node's
+   * receive copy rejected every one as `RING_$BAD_DATA_CNT` (`RING.md` 145e).
+   * So the driver programs words - 1. A counter nothing has written is still
+   * the self-test's unprogrammed card. */
+  const bool programmed =
+      ctl->a2.timer_b.counter[AP_RING_CTL_XMIT_HDR_CNT].count_written;
   unsigned header_words =
-      ctl->a2.timer_b.counter[AP_RING_CTL_XMIT_HDR_CNT].counter;
+      programmed ? ring_ctl_programmed_count(&ctl->a2.timer_b,
+                                             AP_RING_CTL_XMIT_HDR_CNT) +
+                       1u
+                 : 0u;
   unsigned total_words =
-      ctl->a2.timer_b.counter[AP_RING_CTL_XMIT_PKT_CNT].counter;
+      programmed ? ring_ctl_programmed_count(&ctl->a2.timer_b,
+                                             AP_RING_CTL_XMIT_PKT_CNT) +
+                       1u
+                 : 0u;
   if (header_words == 0u) {
     header_words = AP_RING_CTL_XMIT_HEADER_WORDS;
     total_words = AP_RING_CTL_XMIT_HEADER_WORDS;
@@ -86,11 +121,19 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
     header[i * 2u + 1u] = (uint8_t)(word & 0xFFu);
   }
 
-  /* The data half of the message, which p. 12-29 puts a **kilobyte** past the
-   * header: "7 rcv msg buffers (each 1k bytes of header and 1k bytes of data)
-   * and 1 xmit msg buffer of the same size". */
+  /* **The data half of the message, which follows the header in the buffer.**
+   *
+   * This read it a kilobyte past the header, from p. 12-29's "7 rcv msg buffers
+   * (each 1k bytes of header and 1k bytes of data) and 1 xmit msg buffer of the
+   * same size" -- which states each buffer's *capacity*, not where its data
+   * sits. The driver that fills this buffer says where: `domain_os7`'s
+   * transmit copy (`3C4AEE12`-`3C4AEEC0`) calls `RING_$RB_TO` for the header at
+   * the transmit address, adds the header's word count, and copies the data
+   * from there in chunks of up to `$200` words; its receive copy
+   * (`3C4AF6F6`-`3C4AF756`) reads data from `RCV_ADDR` plus half the header
+   * length the same way. Contiguous in both directions (`RING.md` 145d). */
   static uint8_t data[AP_RING_DATA_MAX_BYTES];
-  const size_t data_base = (size_t)base + (1024u / 2u);
+  const size_t data_base = (size_t)base + header_words;
   if (data_words > 0u &&
       data_base + data_words > AP_RING_CTL_BUFFER_WORDS) {
     return false;
@@ -114,10 +157,10 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
     for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_BYTES; i++) {
       ctl->first_tx_header[i] = header[i];
     }
-    ctl->first_tx_hdr_count =
-        ctl->a2.timer_b.counter[AP_RING_CTL_XMIT_HDR_CNT].counter;
-    ctl->first_tx_pkt_count =
-        ctl->a2.timer_b.counter[AP_RING_CTL_XMIT_PKT_CNT].counter;
+    ctl->first_tx_hdr_count = (uint16_t)ring_ctl_programmed_count(
+        &ctl->a2.timer_b, AP_RING_CTL_XMIT_HDR_CNT);
+    ctl->first_tx_pkt_count = (uint16_t)ring_ctl_programmed_count(
+        &ctl->a2.timer_b, AP_RING_CTL_XMIT_PKT_CNT);
     ctl->first_tx_captured = true;
   }
   if (!ap_ring_station_queue_frame(ctl->station, &fields)) {
@@ -161,9 +204,21 @@ static bool ring_ctl_queue_from_buffer(ap_ring_ctl_t *ctl) {
   /* The transmit trio, in `ring8a.drvr`'s units (`RING.md` 100): `XMT_HDR`
    * "Transmitter Header **Word**" and `XMT_PKT` "Transmitter Total **Word**".
    * Words, where the receive pair count bytes -- which is the asymmetry
-   * finding 100a found and 80c was posed without. */
-  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+   * finding 100a found and 80c was posed without.
+   *
+   * **Each runs until it is exhausted: one pulse per word moved.** This gave
+   * both a fixed six pulses whatever the frame. A count of N is exhausted after
+   * N + 1 pulses -- the load pulse, then N decrements (`[8254]` p. 6-157) --
+   * and the transfer moves N + 1 words, which `header_words` and `total_words`
+   * already are. The ring ROM's own expectation table is the evidence for
+   * these two counters in a transfer -- `XMIT_HDR` `$1FF` -> `FE00` and
+   * `XMIT_PKT` `$3FF` -> `0000` over its internal loop -- and no driver read of
+   * them after a transmit is known, so this is consistency with the loopback,
+   * not a measured requirement. */
+  for (unsigned i = 0; i < header_words; i++) {
     ap_i8254_clock_counter(&ctl->a2.timer_b, AP_RING_CTL_XMIT_HDR_CNT);
+  }
+  for (unsigned i = 0; i < total_words; i++) {
     ap_i8254_clock_counter(&ctl->a2.timer_b, AP_RING_CTL_XMIT_PKT_CNT);
   }
   return true;
@@ -418,6 +473,9 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
     if (returned || abandoned) {
       ctl->a2.completion_deferred = false;
       ring_ctl_complete_operation(&ctl->a2);
+      /* A frame the ring carried: acknowledging it moves nothing into the
+       * receive counters (`RING.md` 145g). */
+      ctl->a2.operation_on_wire = true;
     }
   }
   /* **`[MAC]` §2.2.2.5's read-back, folded into XMIT_STAT.** The frame this
@@ -491,6 +549,22 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
    * the transmit read-back above, and the other half of what a driver needs to
    * see a frame arrive rather than infer it from an interrupt. */
   ctl->a2.rcv_status |= AP_RING_CTL_RCV_CPD;
+  /* **A posted receive takes one message.** `002398-04` p. 8-38: "REC - Enable
+   * receive. This informs the controller that the registers are set up to
+   * receive a message", and "STOP - Abort a previously posted REC. This will be
+   * successful if the controller has not already seen a message begin"; p. 7-28
+   * glosses the enable "(start the receive)". The driver treats it so:
+   * `RING8_$INT` reloads the receive counters, writes the next `RCV_ADDR` and
+   * posts `rcv` again after every frame -- and when its next slot is busy it
+   * does none of that, which is flow control that works only if the card stops
+   * after one message. This card stayed enabled, so a second frame landed in
+   * the same buffer and clocked counters nobody had reloaded; two booted nodes
+   * computed header lengths of 147 and 186 bytes for a 92-byte request and
+   * rejected every frame (`RING.md` 145f). A frame arriving before the next
+   * `rcv` meets a receiver "that wasn't enabled to copy the packet", which is
+   * `[MAC]` Figure 2-8's wait-ack. */
+  ap_ring_station_set_receive_enabled(ctl->station, false);
+  ctl->a2.command_404_status &= (uint16_t)~0x0040u; /* `ren` */
 
   /* **Where it lands is `RCV_ADDR`, and how much is the firmware's own
    * answer.** `002398-04` p. 12-29 gives `59004` as `RCV_ADDR` on write, and
@@ -581,6 +655,14 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
     }
     ctl->first_rx_deposit_at = base;
     ctl->first_rx_captured = true;
+    size_t frame_bytes = header_bytes + data_bytes;
+    if (frame_bytes > AP_RING_CTL_FIRST_FRAME_BYTES) {
+      frame_bytes = AP_RING_CTL_FIRST_FRAME_BYTES;
+    }
+    for (size_t i = 0; i < frame_bytes; i++) {
+      ctl->first_rx_frame[i] = src[i];
+    }
+    ctl->first_rx_frame_bytes = (uint16_t)frame_bytes;
   }
   for (unsigned i = 0; i < words; i++) {
     const size_t lo = (size_t)i * 2u + 1u;
@@ -589,7 +671,11 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
                    (uint16_t)(lo < header_bytes ? src[lo] : 0u));
   }
   if (data_bytes > 0u) {
-    const size_t data_base = (size_t)base + (1024u / 2u);
+    /* Immediately after the header's words, where the driver's receive copy
+     * reads it (`3C4AF6F6`: `RCV_ADDR` plus half the header length) -- not a
+     * kilobyte past it, which p. 12-29's buffer *capacity* had been read as
+     * (`RING.md` 145d). */
+    const size_t data_base = (size_t)base + words;
     const unsigned data_words = (unsigned)((data_bytes + 1u) / 2u);
     if (data_base + data_words <= AP_RING_CTL_BUFFER_WORDS) {
       const uint8_t *const dsrc = src + st->rx_header_bytes;
@@ -625,7 +711,20 @@ void ap_ring_ctl_poll_ring(ap_ring_ctl_t *ctl) {
   const size_t header = ctl->station->rx_header_bytes;
   const size_t total = ctl->station->rx_bytes;
   const size_t data = total > header ? total - header : 0u;
-  for (size_t i = 0; i < header; i++) {
+  /* **The header counter runs three short, and the driver's own arithmetic says
+   * so.** `RING8_$INT` reloads `RCV_HDR` and `RCV_DAT` with `FFFF` after every
+   * receive, and `RING8_$INT_DEFERRED` (`domain_os7` `3C4AE6DA`) takes the
+   * lengths as `FFFF` - count + 4 for the header and `FFFF` - count + 1 for the
+   * data, or 3 and 0 while NULL COUNT is still set. With `[8254]` p. 6-157's
+   * load pulse, N data pulses read back as exactly N -- and the header formula
+   * gives the true length only if it had three fewer pulses than bytes, which
+   * is the same three by which the ring ROM's loopback expects `RCV_HDR` to
+   * trail `RCV_PKT` (`FC03` against `FC00`). Two independent consumers, one
+   * offset. *What* holds the counter off for three bytes is not documented --
+   * the loopback path models it as the frame start sequence, and on the wire
+   * those three characters are not header bytes at all -- so this states the
+   * offset the evidence fixes and not a mechanism (`RING.md` 145c, 80c). */
+  for (size_t i = AP_RING_FRAME_START_CHARACTERS; i < header; i++) {
     ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_HDR_CNT);
   }
   for (size_t i = 0; i < data; i++) {
@@ -1326,9 +1425,30 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
          * So the loaded values are *preloads that make each counter
          * identifiable*, not limits, and the transmit pair are clocked too --
          * which this modelled not at all, so a run that got past `RCV_HDR`
-         * would have failed at `d4 = 4` instead. */
-        const uint16_t events = ctl->a2.timer_b.counter[1].latch;
-        for (uint16_t i = 0; i < events; i++) {
+         * would have failed at `d4 = 4` instead.
+         *
+         * **And 1023 decrements are 1024 pulses**, because the first CLK
+         * pulse after a count is written loads it and "does not decrement the
+         * count" (`[8254]` p. 6-157, `docs/references/I8254_WALK.md`). The
+         * transfer runs until `XMIT_PKT_CNT`, loaded `$3FF`, is exhausted,
+         * which under that rule is its latch plus one. *Predicted before it
+         * was run*: with the part corrected and this still counting the latch,
+         * subtest 32 read `FC04` against `FC03` on both ROM revisions -- the
+         * load pulse, exactly. */
+        /* **But only for the internal loop.** Every completion leaves an
+         * operation pending, a frame the ring carried included, and Domain/OS's
+         * `RING8_$INT` acknowledges each transmit here -- so each one pulsed the
+         * receive counters by a transmit's word count, as if its words had come
+         * back through the receive DMA. On two booted nodes the counters read
+         * `FF70` and `FFCE` after a 92-byte header-only request, the driver took
+         * header lengths of 147 and data of 50 from them, and rejected every
+         * frame (`RING.md` 145g). 108a keeps the two paths apart; this is the
+         * one place the wire path still reached the loop's clocking. */
+        const uint32_t events =
+            ctl->a2.operation_on_wire
+                ? 0u
+                : (uint32_t)ctl->a2.timer_b.counter[1].latch + 1u;
+        for (uint32_t i = 0; i < events; i++) {
           ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_PKT_CNT);
           ap_i8254_clock_counter(&ctl->a2.timer_a, AP_RING_CTL_RCV_MAX_CNT);
           ap_i8254_clock_counter(&ctl->a2.timer_b, AP_RING_CTL_XMIT_HDR_CNT);
@@ -1669,6 +1789,9 @@ void ap_ring_ctl_write16(ap_ring_ctl_t *ctl, bool second_window,
           w->completion_deferred = true;
         } else {
           ring_ctl_complete_operation(w);
+          /* Nothing on a wire: the internal loop, whose acknowledge is what
+           * moves its words through the receive counters (`RING.md` 145g). */
+          w->operation_on_wire = false;
         }
       }
       return;

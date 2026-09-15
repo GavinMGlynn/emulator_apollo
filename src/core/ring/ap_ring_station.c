@@ -358,6 +358,12 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
        * point in the stream where the boundary is observable. */
       if (s->rx_separators == 2u) {
         s->rx_header_bytes = s->rx_bytes;
+        /* And the data sequence starts on a byte boundary, as the header
+         * sequence does at the first separator: whatever the separator
+         * character's own bits left in the assembler is not data. */
+        s->rx_ones_run = 0u;
+        s->rx_bit_count = 0u;
+        s->rx_byte = 0u;
       }
       if (s->rx_separators == 3u) {
         s->rx_state = RX_FCS;
@@ -580,6 +586,31 @@ void ap_ring_station_receive(ap_ring_station_t *s, const ap_ring_medium_t *m) {
             /* Capture continues past the decision: the early acknowledge is
              * a byte further on and has to be reached. */
           }
+        }
+      }
+    } else if (s->rx_state == RX_BODY) {
+      /* **§2.2.2.3's packet data sequence, captured as the header is.** The
+       * second separator put the station here and the third takes it to the
+       * frame check; in between are 0 to 4096 bytes of data, bit-stuffed like
+       * the header and forwarded unmodified -- nothing in the data field is a
+       * receiver's to alter. This state was entered and never handled, so a
+       * frame's data went round the ring and never reached the station's
+       * buffer: a card was handed every frame header-only, `rx_bytes` stopping
+       * at the header, and a driver told of a 4-byte payload found nothing
+       * (`RING.md` 145d, `ring_ctl_suite`). A header-only `lcnode` request
+       * could not show it. */
+      const bool stuffed = (s->rx_ones_run >= 5u) && !bit;
+      s->rx_ones_run = bit ? s->rx_ones_run + 1u : 0u;
+      if (!stuffed) {
+        s->rx_byte = (uint8_t)(((unsigned)s->rx_byte << 1) | (bit ? 1u : 0u));
+        if (++s->rx_bit_count == 8u) {
+          if (s->rx_bytes < s->rx_capacity) {
+            s->rx_buffer[s->rx_bytes++] = s->rx_byte;
+          } else if (s->rx_buffer != NULL) {
+            s->rx_overrun = true;
+          }
+          s->rx_bit_count = 0u;
+          s->rx_byte = 0u;
         }
       }
     }

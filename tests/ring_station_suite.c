@@ -401,6 +401,44 @@ static void test_a_queued_frame_is_driven_onto_the_ring(void) {
   TEST_ASSERT_TRUE(r.station[1].tokens_seen > 0u);
 }
 
+/* **§2.2.2.3: the addressee keeps the frame's data, not only its header.** The
+ * second separator ends the header sequence and the third ends the data, and
+ * the station entered its data state and never handled it -- so a frame's data
+ * was forwarded and never captured, and every card was handed its frames
+ * header-only. No test had ever sent a frame with data to a station with a
+ * buffer lent; `ring_ctl_suite`'s buffer-layout test was the first, and found
+ * it (`RING.md` 145d). */
+static void test_the_addressee_keeps_a_frames_data_as_well_as_its_header(void) {
+  ring_t r;
+  build(&r, 3u);
+  static uint8_t txbuf[2048];
+  static uint8_t rxbuf[2048];
+  uint8_t header[12] = {0};
+  ap_ring_header_set_destination(header, 0x00012345u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00067890u);
+  static const uint8_t payload[4] = {0xDEu, 0xADu, 0xBEu, 0xEFu};
+
+  ap_ring_station_attach_tx(&r.station[0], txbuf, sizeof txbuf);
+  ap_ring_station_attach_rx(&r.station[1], rxbuf, sizeof rxbuf);
+  ap_ring_station_set_address(&r.station[1], 0x00012345u);
+  const ap_ring_frame_fields_t fields = {
+      .header = header, .header_bytes = sizeof header,
+      .data = payload, .data_bytes = sizeof payload, .late_acknowledge = 0u};
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&r.station[0], &fields));
+
+  ap_ring_station_originate_token(&r.station[1], AP_RING_OOB_FREE_TOKEN);
+  for (unsigned i = 0; i < 4000u; i++) {
+    step(&r);
+  }
+
+  TEST_ASSERT_EQUAL_UINT64(1u, r.station[1].frames_copied);
+  TEST_ASSERT_EQUAL_UINT(12u, (unsigned)r.station[1].rx_header_bytes);
+  TEST_ASSERT_EQUAL_UINT(16u, (unsigned)r.station[1].rx_bytes);
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(header, rxbuf, 7u); /* through the type */
+  TEST_ASSERT_EQUAL_HEX8_ARRAY(payload, rxbuf + 12u, sizeof payload);
+}
+
 /* **§2.2.2.2's receive decision, which did not exist.** "The hardware compares
  * the contents of the 32-bit destination address field with the node address
  * of the target ... a node receives a message if the destination address field
@@ -817,6 +855,7 @@ int main(void) {
   RUN_TEST(test_cable_lets_a_three_station_ring_circulate_a_token);
   RUN_TEST(test_the_station_recognises_a_nine_bit_symbol);
   RUN_TEST(test_a_queued_frame_is_driven_onto_the_ring);
+  RUN_TEST(test_the_addressee_keeps_a_frames_data_as_well_as_its_header);
   RUN_TEST(test_a_frame_is_accepted_only_by_its_addressee);
   RUN_TEST(test_a_broadcast_is_accepted_regardless_of_destination);
   RUN_TEST(test_an_addressed_receiver_sets_intend_to_copy_in_flight);

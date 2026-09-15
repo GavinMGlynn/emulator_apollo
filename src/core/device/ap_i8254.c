@@ -31,16 +31,61 @@ void ap_i8254_reset(ap_i8254_t *pit) {
   }
 }
 
-/* "New count is loaded into CE (CR -> CE): NULL COUNT = 0", Figure 12. This is
- * the only place the flag clears, and the only place counting begins. */
-static void load(ap_i8254_counter_t *c) {
+/* ## Counting down, in either of Figure 7's two number systems
+ *
+ * "BCD: 0 Binary Counter 16-bits, 1 Binary Coded Decimal (BCD) Counter (4
+ * Decades)", and p. 6-161: "The Counter does not stop when it reaches zero. In
+ * Modes 0, 1, 4, and 5 the Counter 'wraps around' to the highest count, either
+ * FFFF hex for binary counting or 9999 for BCD counting". So a BCD counter is
+ * four decimal digits held in the same sixteen bits, and it wraps at 10^4. */
+static bool counts_bcd(const ap_i8254_counter_t *c) {
+  return (c->control & AP_I8254_CW_BCD) != 0u;
+}
+
+static unsigned bcd_to_decimal(uint16_t word) {
+  return ((word >> 12) & 0xFu) * 1000u + ((word >> 8) & 0xFu) * 100u +
+         ((word >> 4) & 0xFu) * 10u + (word & 0xFu);
+}
+
+static uint16_t decimal_to_bcd(unsigned value) {
+  return (uint16_t)(((value / 1000u) % 10u) << 12 |
+                    ((value / 100u) % 10u) << 8 | ((value / 10u) % 10u) << 4 |
+                    (value % 10u));
+}
+
+static void count_down(ap_i8254_counter_t *c, unsigned by) {
+  if (!counts_bcd(c)) {
+    c->counter = (uint16_t)(c->counter - by);
+    return;
+  }
+  const unsigned value = bcd_to_decimal(c->counter);
+  c->counter = decimal_to_bcd((value + 10000u - by) % 10000u);
+}
+
+/* "New count is loaded into CE (CR -> CE): NULL COUNT = 0", Figure 12, and
+ * p. 6-161: "New counts are loaded and Counters are decremented on the falling
+ * edge of CLK". The only place the flag clears. */
+static void transfer(ap_i8254_counter_t *c) {
   c->counter = c->latch;
   c->null_count = false;
+  c->load_pending = false;
   c->counting = true;
-  /* Mode 0's OUT "will be initially low ... and it will go high when the
-   * Counter reaches zero", and writing a count while counting restarts that. */
-  if ((c->control & AP_I8254_CW_MODE) >> 1 == 0u) {
-    c->out = false;
+  c->expired = false;
+}
+
+/* Mode 3's load, p. 6-159: "Even counts: ... The initial count is loaded on one
+ * CLK pulse and then is decremented by two on succeeding CLK pulses" and "Odd
+ * counts: ... The initial count minus one (an even number) is loaded on one CLK
+ * pulse". The parity of a BCD count is its low digit's, which is bit 0 either
+ * way. */
+static bool square_count_is_odd(const ap_i8254_counter_t *c) {
+  return (c->latch & 1u) != 0u;
+}
+
+static void load_square(ap_i8254_counter_t *c) {
+  transfer(c);
+  if (square_count_is_odd(c)) {
+    count_down(c, 1u);
   }
 }
 
@@ -60,9 +105,9 @@ static uint8_t status_of(const ap_i8254_counter_t *c) {
 
 static void latch_count(ap_i8254_counter_t *c) {
   /* "If multiple status latch operations of the counter(s) are performed
-   * without reading the status, all but the first are ignored" -- §the same
-   * rule the count latch follows, so a second latch does not overwrite an
-   * unread one. */
+   * without reading the status, all but the first are ignored" -- the same rule
+   * the count latch follows, so a second latch does not overwrite an unread
+   * one. */
   if (!c->count_latched) {
     c->count_latch = c->counter;
     c->count_latched = true;
@@ -107,19 +152,80 @@ static void write_control(ap_i8254_t *pit, uint8_t value) {
   }
 
   c->control = value;
-  /* "Write to the control word register: NULL COUNT = 1", and only for the
-   * counter the word selects -- Figure 12's first footnote. Counting stops
-   * until a count is loaded: a control word with no count behind it leaves the
-   * counter holding whatever it held, and the driver is expected to load one. */
+  /* p. 6-161: "When a Control Word is written to a Counter, all Control Logic is
+   * immediately reset and OUT goes to a known initial state; no CLK pulses are
+   * required for this." Counting stops until a count is loaded, and NULL COUNT
+   * is 1 (Figure 12, footnote 1: "only the counter specified by the control
+   * word"). */
   c->null_count = true;
   c->counting = false;
+  c->load_pending = false;
+  c->trigger = false;
+  c->count_written = false;
+  c->expired = false;
+  /* p. 6-152: "CR_M and CR_L are cleared when the Counter is programmed. In this
+   * way, if the Counter has been programmed for one byte counts ... the other
+   * byte will be zero." */
+  c->latch = 0u;
   c->write_msb_next = false;
   c->read_msb_next = false;
+  /* "Each latched Counter's OL holds its count until it is read (or the Counter
+   * is reprogrammed)" (p. 6-155). */
   c->count_latched = false;
   c->status_latched = false;
-  /* Mode 0 "will be initially low"; every other mode's OUT is initially high.
-   * Figure 7's mode descriptions each open with that state. */
+  /* Mode 0 "OUT is initially low"; every other mode's OUT "will be initially
+   * high" -- each mode definition opens with that state. */
   c->out = ap_i8254_mode(pit, index) != 0u;
+}
+
+/* The first byte of a two-byte count, which each mode states separately.
+ * Mode 0, p. 6-157: "Writing the first byte disables counting. OUT is set low
+ * immediately (no clock pulse required)". Mode 4, p. 6-159: "Writing the first
+ * byte has no effect on counting." The others say nothing, and NULL COUNT does
+ * not move until the second (Figure 12, footnote 2). */
+static void first_byte_written(const ap_i8254_t *pit, unsigned index,
+                               ap_i8254_counter_t *c) {
+  if (ap_i8254_mode(pit, index) == 0u) {
+    c->counting = false;
+    c->out = false;
+  }
+}
+
+/* A whole count is in CR. When it reaches CE is the mode's business:
+ *
+ *   - modes 0 and 4: "on the next CLK pulse", whether or not a count was
+ *     already running ("If a new count is written to the Counter, it will be
+ *     loaded on the next CLK pulse and counting will continue from the new
+ *     count");
+ *   - modes 2 and 3: on the next CLK pulse after the Control Word, but a count
+ *     written while counting "does not affect the current counting sequence" --
+ *     it is loaded at the end of the current cycle (or half-cycle), or by a
+ *     trigger;
+ *   - modes 1 and 5: only by a trigger.
+ *
+ * And mode 0's OUT "remains high until a new count or a new Mode 0 Control Word
+ * is written into the Counter". */
+static void count_written(const ap_i8254_t *pit, unsigned index,
+                          ap_i8254_counter_t *c) {
+  c->null_count = true;
+  c->count_written = true;
+  switch (ap_i8254_mode(pit, index)) {
+  case 0u:
+    c->out = false;
+    c->load_pending = true;
+    break;
+  case 4u:
+    c->load_pending = true;
+    break;
+  case 2u:
+  case 3u:
+    if (!c->counting) {
+      c->load_pending = true;
+    }
+    break;
+  default:
+    break;
+  }
 }
 
 void ap_i8254_write(ap_i8254_t *pit, ap_i8254_reg_t reg, uint8_t value) {
@@ -133,33 +239,28 @@ void ap_i8254_write(ap_i8254_t *pit, ap_i8254_reg_t reg, uint8_t value) {
   if ((unsigned)reg >= AP_I8254_COUNTERS) {
     return;
   }
-  ap_i8254_counter_t *c = &pit->counter[reg];
+  const unsigned index = (unsigned)reg;
+  ap_i8254_counter_t *c = &pit->counter[index];
 
   switch (rw_of(c)) {
   case AP_I8254_RW_LSB:
     c->latch = (uint16_t)((c->latch & 0xFF00u) | value);
-    c->null_count = true;
-    load(c);
+    count_written(pit, index, c);
     return;
   case AP_I8254_RW_MSB:
     c->latch = (uint16_t)((c->latch & 0x00FFu) | (uint16_t)(value << 8));
-    c->null_count = true;
-    load(c);
+    count_written(pit, index, c);
     return;
   case AP_I8254_RW_LSB_THEN_MSB:
     if (!c->write_msb_next) {
       c->latch = (uint16_t)((c->latch & 0xFF00u) | value);
       c->write_msb_next = true;
-      /* "Writing the first byte disables counting" -- the counter is held until
-       * the pair completes, and NULL COUNT stays set. Figure 12's footnote puts
-       * the transition on the *second* byte. */
-      c->counting = false;
-      c->null_count = true;
+      first_byte_written(pit, index, c);
       return;
     }
     c->latch = (uint16_t)((c->latch & 0x00FFu) | (uint16_t)(value << 8));
     c->write_msb_next = false;
-    load(c);
+    count_written(pit, index, c);
     return;
   case AP_I8254_RW_LATCH:
     break;
@@ -208,6 +309,12 @@ uint8_t ap_i8254_read(ap_i8254_t *pit, ap_i8254_reg_t reg) {
   return 0u;
 }
 
+/* Figure 21, the gate pin operations summary, and p. 6-161's two sampling
+ * rules. The level is kept for the next CLK pulse to sample; the edge sets the
+ * trigger flip-flop in the modes that have one; and modes 2 and 3 act on a low
+ * gate at once: "If GATE goes low during an output pulse, OUT is set high
+ * immediately" (mode 2), "If GATE goes low while OUT is low, OUT is set high
+ * immediately; no CLK pulse is required" (mode 3). */
 void ap_i8254_set_gate(ap_i8254_t *pit, unsigned index, bool high) {
   if (pit == NULL || index >= AP_I8254_COUNTERS) {
     return;
@@ -215,15 +322,13 @@ void ap_i8254_set_gate(ap_i8254_t *pit, unsigned index, bool high) {
   ap_i8254_counter_t *c = &pit->counter[index];
   const bool was = c->gate;
   c->gate = high;
-  /* Modes 2 and 3 reload on a rising gate edge; mode 0 merely resumes. The
-   * three gate-triggered modes need the edge to *start*, which is why
-   * `ap_i8254_mode_gated` exists and why this board's undriven gate leaves them
-   * reported rather than approximated. */
-  if (!was && high) {
-    const unsigned mode = ap_i8254_mode(pit, index);
-    if (mode == 2u || mode == 3u) {
-      c->counter = c->latch;
-    }
+  const unsigned mode = ap_i8254_mode(pit, index);
+  if (was && !high && (mode == 2u || mode == 3u)) {
+    c->out = true;
+  }
+  if (!was && high &&
+      (mode == 1u || mode == 2u || mode == 3u || mode == 5u)) {
+    c->trigger = true;
   }
 }
 
@@ -241,57 +346,159 @@ bool ap_i8254_out(const ap_i8254_t *pit, unsigned index) {
  * three distinct receive conditions, one per receive counter. A model with only
  * a whole-part pulse cannot express that, and cannot express the firmware's own
  * requirement that the header counter and the packet counter reach *different*
- * totals over one transfer (`RING.md` 76a). */
+ * totals over one transfer (`RING.md` 76a).
+ *
+ * One call is one whole pulse: the rising edge samples GATE and the trigger
+ * flip-flop, and the falling edge loads or decrements (p. 6-161). */
 void ap_i8254_clock_counter(ap_i8254_t *pit, unsigned index) {
   if (pit == NULL || index >= AP_I8254_COUNTERS) {
     return;
   }
   ap_i8254_counter_t *c = &pit->counter[index];
-  if (!c->counting || !c->gate) {
-    /* "In Modes 0, 2, 3 and 4 the GATE input is level sensitive" -- a low gate
-     * holds the count where it stands rather than resetting it. */
-    return;
-  }
   const unsigned mode = ap_i8254_mode(pit, index);
+  const bool triggered = c->trigger && c->count_written;
+  c->trigger = false;
 
-  if (mode == 3u) {
-    /* Mode 3, the square wave: the count is decremented by two and OUT toggles
-     * at each expiry, giving a half-period of N/2 clocks. */
-    c->counter = (uint16_t)(c->counter - 2u);
-    if (c->counter == 0u || c->counter == 0xFFFFu) {
-      c->out = !c->out;
-      c->counter = c->latch;
+  switch (mode) {
+  case 0u:
+    /* Mode 0, interrupt on terminal count (p. 6-157, Figure 15). The load
+     * pulse happens "while GATE = 0" too; only counting waits on the gate. OUT
+     * goes high when the count expires and stays high while the counter wraps
+     * on (`RING.md` 120a: the ring firmware reads `FE00` from a counter loaded
+     * `$1FF` after it has gone through zero). */
+    if (c->load_pending) {
+      transfer(c);
+      return;
+    }
+    if (!c->counting || !c->gate) {
+      return;
+    }
+    count_down(c, 1u);
+    if (c->counter == 0u && !c->expired) {
+      c->expired = true;
+      c->out = true;
+    }
+    return;
+
+  case 1u:
+    /* Mode 1, hardware retriggerable one-shot (p. 6-158, Figure 16): a trigger
+     * loads the count and sets OUT low on the next CLK pulse, and OUT goes high
+     * when it expires. GATE has no other effect. */
+    if (triggered) {
+      transfer(c);
+      c->out = false;
+      return;
+    }
+    if (!c->counting) {
+      return;
+    }
+    count_down(c, 1u);
+    if (c->counter == 0u && !c->expired) {
+      c->expired = true;
+      c->out = true;
+    }
+    return;
+
+  case 2u:
+    /* Mode 2, rate generator (p. 6-158, Figure 17): "When the initial count has
+     * decremented to 1, OUT goes low for one CLK pulse. OUT then goes high
+     * again, the Counter reloads the initial count and the process is
+     * repeated." The reload takes whatever CR now holds, which is how a count
+     * written mid-cycle takes effect at the end of it. */
+    if (c->load_pending || triggered) {
+      transfer(c);
+      c->out = true;
+      return;
+    }
+    if (!c->counting || !c->gate) {
+      return;
+    }
+    if (c->counter == 1u) {
+      transfer(c);
+      c->out = true;
+      return;
+    }
+    count_down(c, 1u);
+    if (c->counter == 1u) {
+      c->out = false;
+    }
+    return;
+
+  case 3u:
+    /* Mode 3, square wave (p. 6-159, Figure 18). Even counts: decrement by two,
+     * and at expiry OUT changes and the count reloads. Odd counts: the count
+     * minus one is loaded; "One CLK pulse *after* the count expires, OUT goes
+     * low and the Counter is reloaded with the initial count minus one ...
+     * When the count expires, OUT goes high again" -- so OUT is high for
+     * (N+1)/2 pulses and low for (N-1)/2. */
+    if (c->load_pending || triggered) {
+      load_square(c);
+      c->out = true;
+      return;
+    }
+    if (!c->counting || !c->gate) {
+      return;
+    }
+    if (square_count_is_odd(c) && c->out && c->counter == 0u) {
+      load_square(c);
+      c->out = false;
+      return;
+    }
+    count_down(c, 2u);
+    if (c->counter == 0u) {
+      if (!square_count_is_odd(c)) {
+        load_square(c);
+        c->out = !c->out;
+      } else if (!c->out) {
+        load_square(c);
+        c->out = true;
+      }
+    }
+    return;
+
+  case 4u:
+    /* Mode 4, software triggered strobe (p. 6-159, Figure 19): "When the
+     * initial count expires, OUT will go low for one CLK pulse and then go high
+     * again", N+1 pulses after the count is written. */
+    if (!c->out) {
+      c->out = true;
+    }
+    if (c->load_pending) {
+      transfer(c);
+      return;
+    }
+    if (!c->counting || !c->gate) {
+      return;
+    }
+    count_down(c, 1u);
+    if (c->counter == 0u && !c->expired) {
+      c->expired = true;
+      c->out = false;
+    }
+    return;
+
+  case 5u:
+  default:
+    /* Mode 5, hardware triggered strobe (p. 6-160, Figure 20): "the Counter will
+     * not be loaded until the CLK pulse after a trigger", and the strobe is
+     * mode 4's. Retriggerable; GATE has no other effect. */
+    if (!c->out) {
+      c->out = true;
+    }
+    if (triggered) {
+      transfer(c);
+      return;
+    }
+    if (!c->counting) {
+      return;
+    }
+    count_down(c, 1u);
+    if (c->counter == 0u && !c->expired) {
+      c->expired = true;
+      c->out = false;
     }
     return;
   }
-
-  c->counter = (uint16_t)(c->counter - 1u);
-  if (c->counter != 0u) {
-    return;
-  }
-
-  if (mode == 2u) {
-    /* Mode 2, the rate generator: OUT goes low for one clock at zero and the
-     * counter reloads, so it is periodic without a new write. */
-    c->out = false;
-    c->counter = c->latch;
-    return;
-  }
-
-  /* Mode 0, and the three gate-triggered modes this board cannot distinguish:
-   * "OUT then goes high and remains high until a new count or a new Mode 0
-   * Control Word is written into the Counter" -- the datasheet says OUT
-   * latches, and says nothing about the *counter* stopping.
-   *
-   * **It does not stop, and this used to.** The comment here already said
-   * "counting continues past zero -- the counter wraps" while the line beneath
-   * it cleared `counting`, so a counter that reached terminal count froze at
-   * zero. The ring firmware is what caught it: subtest 32 loads `XMIT_HDR_CNT`
-   * with `$1FF` and requires it to read **`FE00`** after the operation, which
-   * is 1023 counts down from `$1FF` -- reachable only by wrapping through
-   * zero. A frozen counter reads `0000` instead, which is exactly what it
-   * did. `RING.md` 120a. */
-  c->out = true;
 }
 
 void ap_i8254_clock(ap_i8254_t *pit) {

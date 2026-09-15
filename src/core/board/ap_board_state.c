@@ -809,6 +809,14 @@ static void hash_ring_window(ap_hash_t *st, const ap_ring_ctl_window_t *w) {
       hash_bool(st, c->status_latched);
       hash_bool(st, c->write_msb_next);
       hash_bool(st, c->read_msb_next);
+      /* And the four the datasheet walk added (`I8254_WALK.md`): a count
+       * waiting for its load pulse, the trigger flip-flop, whether CR holds a
+       * count at all, and whether the initial count has expired. Each decides
+       * what the next CLK pulse does. */
+      hash_bool(st, c->load_pending);
+      hash_bool(st, c->trigger);
+      hash_bool(st, c->count_written);
+      hash_bool(st, c->expired);
     }
   }
 }

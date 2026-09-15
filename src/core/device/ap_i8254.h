@@ -31,13 +31,21 @@
  * sequencing on both reads and writes, the NULL COUNT flag with the exact
  * transitions Figure 12 gives, and counting with the OUT pin.
  *
- * Modes 0 and 2 and 3 are implemented in full. Modes 1, 4 and 5 are decoded and
- * counted, and their OUT waveform is mode 0's -- they are gate-triggered or
- * strobe outputs whose distinguishing behaviour needs a GATE edge, and this
- * board drives no gate. That is a *board* fact rather than a part fact and is
- * marked as such: `ap_i8254_mode_gated` reports which modes need the pin this
- * board does not wire, so a caller is told rather than silently given mode 0's
- * shape.
+ * All six modes are implemented to their definitions and timing figures
+ * (pp. 6-157 to 6-160, Figures 15-21), with p. 6-161's common rules: a written
+ * count reaches the counting element on the **next CLK pulse**, which does not
+ * decrement it; GATE is sampled on the rising CLK edge and a rising GATE sets a
+ * trigger flip-flop in modes 1, 2, 3 and 5; counts of 0 are 2^16 or 10^4; binary
+ * and BCD counters wrap. The walk and what each page yielded is
+ * `docs/references/I8254_WALK.md`. *Corrected 2026-09-15*: this said "Modes 0
+ * and 2 and 3 are implemented in full. Modes 1, 4 and 5 are decoded and counted,
+ * and their OUT waveform is mode 0's", and it also loaded every count at the
+ * write -- which is what a ring driver's NULL COUNT branch could not be given
+ * (`RING.md` 145c).
+ *
+ * This board drives no GATE, which is a *board* fact rather than a part fact:
+ * `ap_i8254_mode_gated` still reports which modes need the pin, so a caller
+ * knows when a mode it programs cannot start here.
  *
  * ## Two figures that decide the whole part
  *
@@ -110,10 +118,28 @@ typedef struct {
 
   uint16_t counter;  /* CE, the counting element */
   uint16_t latch;    /* CR, the count register a write loads */
-  bool gate;         /* the GATE pin; high enables counting in modes 0, 2, 3 */
+  bool gate;         /* the GATE pin; level-sensitive in modes 0, 2, 3 and 4 */
   bool out;          /* the OUT pin */
   bool null_count;   /* status D6 */
-  bool counting;     /* a count has been loaded and not yet run out */
+  bool counting;     /* CE holds a loaded count and the mode is counting it */
+
+  /* p. 6-157: "the initial count will be loaded on the next CLK pulse. This
+   * CLK pulse does not decrement the count". A written count waits in CR until
+   * then, with NULL COUNT still 1 (Figure 12's "new count is loaded into CE"). */
+  bool load_pending;
+  /* p. 6-161: "In Modes 1, 2, 3 and 5 ... a rising edge of GATE (trigger) sets
+   * an edge-sensitive flip-flop in the Counter. This flip-flop is then sampled
+   * on the next rising edge of CLK; the flip-flop is reset immediately after it
+   * is sampled." */
+  bool trigger;
+  /* Whether CR holds a count written since the last Control Word -- the one
+   * shots of modes 1 and 5 have nothing to load until one has been. */
+  bool count_written;
+  /* Whether the loaded count has expired. Modes 0, 1, 4 and 5 act on the
+   * *initial* count's expiry ("When the initial count expires, OUT will go low
+   * for one CLK pulse"), and the counter then wraps and goes on counting
+   * (p. 6-161) without expiring again. */
+  bool expired;
 
   /* The output latch and its own valid flag. "This count is held in the latch
    * until it is read by the CPU ... The count is then unlatched automatically
@@ -162,9 +188,10 @@ void ap_i8254_set_gate(ap_i8254_t *pit, unsigned index, bool high);
 /* The OUT pin. */
 [[nodiscard]] bool ap_i8254_out(const ap_i8254_t *pit, unsigned index);
 
-/* Whether a counter's programmed mode is one whose distinguishing behaviour
- * needs a GATE edge this board does not drive -- modes 1, 4 and 5. Reported so
- * that a caller is told rather than silently handed mode 0's waveform. */
+/* Whether a counter's programmed mode is one that needs a GATE this board does
+ * not drive to do anything useful -- modes 1 and 5 start only on a trigger, and
+ * mode 4 is a strobe a board would gate. All three are implemented; this is the
+ * board-level fact, reported so a caller knows. */
 [[nodiscard]] bool ap_i8254_mode_gated(const ap_i8254_t *pit, unsigned index);
 
 /* The programmed mode, `M2 M1 M0`, as a number 0-5. Modes 6 and 7 alias to 2

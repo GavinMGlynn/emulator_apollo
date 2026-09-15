@@ -314,6 +314,9 @@ static void test_a_word_access_touches_the_timer_exactly_once(void) {
   ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_A + 6u, 0x30u);
   ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_A, 0x34u);
   ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_A, 0x12u);
+  /* The count reaches the counting element on the next CLK pulse, which does
+   * not decrement it (`[8254]` p. 6-157). */
+  ap_i8254_clock_counter(&ctl.a2.timer_a, 0u);
   TEST_ASSERT_EQUAL_HEX16(0x1234u, ctl.a2.timer_a.counter[0].counter);
 
   /* Latch it, then take the count with two word reads. If the odd byte reached
@@ -1159,6 +1162,212 @@ static void test_a_frame_that_never_returns_completes_as_no_return(void) {
                               0xFF00u);
 }
 
+/* **A posted receive takes one message.** `002398-04` p. 8-38 has REC tell the
+ * controller "the registers are set up to receive a message", and STOP abort "a
+ * previously posted REC"; the driver re-posts `rcv` after every frame and
+ * withholds it when it has nowhere to put the next (`RING.md` 145f). So after
+ * one deposit the card is not enabled to copy: a second frame is wait-acked and
+ * not deposited, `ren` reads clear, and posting `rcv` again takes the next. */
+static void test_a_posted_receive_takes_one_message(void) {
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  wired_build(&w);
+  ap_ring_station_attach_tx(&w.station[1], txbuf, sizeof txbuf);
+  ap_ring_station_set_address(&w.station[0], 0x00012345u);
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(header, 0x00012345u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00ABCDEFu);
+  const ap_ring_frame_fields_t fields = {.header = header,
+                                         .header_bytes = sizeof header,
+                                         .data = NULL,
+                                         .data_bytes = 0u,
+                                         .late_acknowledge = 0u};
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_RCV_ADDR,
+                      ring_addr_reg(0x0010u));
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  ap_ring_station_originate_token(&w.station[1], AP_RING_OOB_FREE_TOKEN);
+
+  /* First frame: taken, and the receiver is then no longer enabled. */
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&w.station[1], &fields));
+  for (unsigned i = 0; i < 4000u; i++) {
+    wired_step(&w);
+  }
+  TEST_ASSERT_EQUAL_UINT(1u, w.ctl.deposits);
+  TEST_ASSERT_FALSE(w.station[0].receive_enabled);
+  TEST_ASSERT_EQUAL_HEX16(
+      0u, ap_ring_ctl_read16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u) &
+              AP_RING_CTL_RCV_REN);
+
+  /* Second frame, nothing re-posted: wait-acked, not deposited. */
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&w.station[1], &fields));
+  for (unsigned i = 0; i < 4000u; i++) {
+    wired_step(&w);
+  }
+  TEST_ASSERT_EQUAL_UINT(1u, w.ctl.deposits);
+  TEST_ASSERT_EQUAL_UINT64(1u, w.station[0].frames_wacked);
+
+  /* `rcv` posted again: the third frame is taken. */
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&w.station[1], &fields));
+  for (unsigned i = 0; i < 4000u; i++) {
+    wired_step(&w);
+  }
+  TEST_ASSERT_EQUAL_UINT(2u, w.ctl.deposits);
+}
+
+/* **Acknowledging a frame the ring carried moves nothing through the receive
+ * counters.** The first window's `XMIT_ACK` finishes an operation, and for the
+ * gate array's internal transmit-to-receive loop that is where the loop's words
+ * reach the receive counters (findings 80, 108a). A frame that went out on the
+ * wire never passed them -- but every completion left an operation pending, and
+ * Domain/OS's `RING8_$INT` acknowledges each transmit (`move.w #$1,$2(a0)`), so
+ * each one pulsed `RCV_HDR` and `RCV_PKT` by a transmit's word count. Two booted
+ * nodes then read `FF70` and `FFCE` after a 92-byte header-only request and
+ * rejected every frame (`RING.md` 145g). The counters here are left as the
+ * driver leaves them after a receive: `FFFF` written, not yet loaded. */
+static void test_acknowledging_a_wire_transmit_leaves_the_receive_counters_alone(
+    void) {
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  wired_ready_to_send(&w, txbuf, sizeof txbuf);
+  static const uint8_t control[2] = {0x30u, 0x70u}; /* counters 0 and 1, mode 0 */
+  for (unsigned k = 0; k < 2u; k++) {
+    ap_i8254_write(&w.ctl.a2.timer_a, AP_I8254_CONTROL, control[k]);
+    ap_i8254_write(&w.ctl.a2.timer_a, (ap_i8254_reg_t)k, 0xFFu);
+    ap_i8254_write(&w.ctl.a2.timer_a, (ap_i8254_reg_t)k, 0xFFu);
+  }
+  const ap_i8254_counter_t before[2] = {w.ctl.a2.timer_a.counter[0],
+                                        w.ctl.a2.timer_a.counter[1]};
+
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+  for (unsigned i = 0; i < 4000u && w.ctl.a2.completion_deferred; i++) {
+    wired_step(&w);
+  }
+  TEST_ASSERT_FALSE(w.ctl.a2.completion_deferred);
+  TEST_ASSERT_TRUE(w.ctl.a2.operation_pending);
+
+  ap_ring_ctl_write16(&w.ctl, false, AP_RING_CTL_W1_XMIT_ACK, 0x0001u);
+  TEST_ASSERT_FALSE(w.ctl.a2.operation_pending);
+  for (unsigned k = 0; k < 2u; k++) {
+    const ap_i8254_counter_t *after = &w.ctl.a2.timer_a.counter[k];
+    TEST_ASSERT_EQUAL_HEX16(before[k].counter, after->counter);
+    TEST_ASSERT_EQUAL_INT((int)before[k].null_count, (int)after->null_count);
+    TEST_ASSERT_EQUAL_INT((int)before[k].load_pending,
+                          (int)after->load_pending);
+  }
+}
+
+/* **Data follows the header in the card's buffer, in both directions.**
+ *
+ * p. 12-29's "7 rcv msg buffers (each 1k bytes of header and 1k bytes of data)
+ * and 1 xmit msg buffer of the same size" had been read as a layout, with the
+ * data a kilobyte past the header. It is a capacity. The driver that fills and
+ * empties the buffer puts the data straight after the header's words:
+ * `domain_os7`'s transmit copy calls `RING_$RB_TO` for the header at the
+ * transmit address, adds the header's word count and copies the data from
+ * there, and its receive copy reads data from `RCV_ADDR` plus half the header
+ * length (`RING.md` 145d). A header-only `lcnode` request never showed the
+ * difference; a frame with data would have carried the wrong words both ways. */
+static void test_data_follows_the_header_in_the_buffer_both_ways(void) {
+  /* Receive: a twelve-byte header and four bytes of data arriving at the card,
+   * whose station has the receive buffer a board lends it. */
+  static wired_t w;
+  static uint8_t txbuf[2048];
+  static uint8_t rxbuf[2048];
+  wired_build(&w);
+  ap_ring_station_attach_tx(&w.station[1], txbuf, sizeof txbuf);
+  ap_ring_station_attach_rx(&w.station[0], rxbuf, sizeof rxbuf);
+  ap_ring_station_set_address(&w.station[0], 0x00012345u);
+  uint8_t header[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(header, 0x00012345u);
+  ap_ring_header_set_type(header, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(header, 0x00ABCDEFu);
+  static const uint8_t payload[4] = {0xDEu, 0xADu, 0xBEu, 0xEFu};
+  const ap_ring_frame_fields_t fields = {.header = header,
+                                         .header_bytes = sizeof header,
+                                         .data = payload,
+                                         .data_bytes = sizeof payload,
+                                         .late_acknowledge = 0u};
+  TEST_ASSERT_TRUE(ap_ring_station_queue_frame(&w.station[1], &fields));
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_W2_RCV_ADDR,
+                      ring_addr_reg(0x0010u));
+  ap_ring_ctl_write16(&w.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  ap_ring_station_originate_token(&w.station[1], AP_RING_OOB_FREE_TOKEN);
+  for (unsigned i = 0; i < 4000u; i++) {
+    wired_step(&w);
+  }
+  TEST_ASSERT_EQUAL_UINT(1u, w.ctl.deposits);
+  /* The station split the frame where §2.2.2.2 does -- twelve header bytes,
+   * four of data -- and the header landed at `RCV_ADDR`. */
+  TEST_ASSERT_EQUAL_UINT(12u, (unsigned)w.station[0].rx_header_bytes);
+  TEST_ASSERT_EQUAL_UINT(16u, (unsigned)w.station[0].rx_bytes);
+  /* The destination `00012345`, big-endian, is the first two header words. */
+  TEST_ASSERT_EQUAL_HEX16(0x0001u, w.ctl.buffer[0x10u]);
+  TEST_ASSERT_EQUAL_HEX16(0x2345u, w.ctl.buffer[0x10u + 1u]);
+  /* Six header words at `$10`, and the data at `$16`. */
+  TEST_ASSERT_EQUAL_HEX16(0xDEADu, w.ctl.buffer[0x10u + 6u]);
+  TEST_ASSERT_EQUAL_HEX16(0xBEEFu, w.ctl.buffer[0x10u + 7u]);
+
+  /* Transmit: the driver programs `XMT_HDR` and `XMT_PKT` in words, then the
+   * command; what leaves is the header and the two words after it. */
+  static wired_t t;
+  static uint8_t txbuf2[2048];
+  static uint8_t rxbuf2[2048];
+  wired_build(&t);
+  ap_ring_station_attach_tx(&t.station[0], txbuf2, sizeof txbuf2);
+  ap_ring_station_attach_rx(&t.station[1], rxbuf2, sizeof rxbuf2);
+  ap_ring_station_set_address(&t.station[1], 0x00ABCDEFu);
+  t.station[1].receive_enabled = true;
+  uint8_t out[AP_RING_CTL_XMIT_HEADER_BYTES] = {0};
+  ap_ring_header_set_destination(out, 0x00ABCDEFu);
+  ap_ring_header_set_type(out, AP_RING_TYPE_USER);
+  ap_ring_header_set_source(out, 0x00012345u);
+  for (unsigned i = 0; i < AP_RING_CTL_XMIT_HEADER_WORDS; i++) {
+    t.ctl.buffer[0x40u + i] =
+        (uint16_t)((out[i * 2u] << 8) | out[i * 2u + 1u]);
+  }
+  t.ctl.buffer[0x46u] = 0xCAFEu;
+  t.ctl.buffer[0x47u] = 0xF00Du;
+  /* Programmed as the driver does, one less than the words to move: a count of
+   * N runs N + 1 pulses to exhaustion (`RING.md` 145e). Six header words and
+   * eight in all. */
+  static const struct { unsigned counter; uint8_t words; } program[] = {
+      {AP_RING_CTL_XMIT_HDR_CNT, 5u},
+      {AP_RING_CTL_XMIT_PKT_CNT, 7u},
+  };
+  for (unsigned k = 0; k < 2u; k++) {
+    ap_i8254_write(&t.ctl.a2.timer_b, AP_I8254_CONTROL,
+                   (uint8_t)((program[k].counter << 6) | 0x30u));
+    ap_i8254_write(&t.ctl.a2.timer_b, (ap_i8254_reg_t)program[k].counter,
+                   program[k].words);
+    ap_i8254_write(&t.ctl.a2.timer_b, (ap_i8254_reg_t)program[k].counter, 0u);
+  }
+  ap_ring_ctl_write16(&t.ctl, true, AP_RING_CTL_W2_XMIT_ADDR,
+                      ring_addr_reg(0x0040u));
+  ap_ring_ctl_write16(&t.ctl, true, AP_RING_CTL_BANK_STATUS,
+                      AP_RING_CTL_MISC_CMD_NCT);
+  ap_ring_ctl_write16(&t.ctl, true, AP_RING_CTL_BANK_STATUS + 4u,
+                      AP_RING_CTL_RCV_CMD_RCV);
+  ap_ring_station_originate_token(&t.station[1], AP_RING_OOB_FREE_TOKEN);
+  ap_ring_ctl_write16(&t.ctl, true, AP_RING_CTL_BANK_STATUS + 2u, 0x0200u);
+  for (unsigned i = 0; i < 4000u; i++) {
+    wired_step(&t);
+  }
+  TEST_ASSERT_EQUAL_UINT(16u, (unsigned)t.station[1].rx_bytes);
+  TEST_ASSERT_EQUAL_HEX8(0xCAu, rxbuf2[12]);
+  TEST_ASSERT_EQUAL_HEX8(0xFEu, rxbuf2[13]);
+  TEST_ASSERT_EQUAL_HEX8(0xF0u, rxbuf2[14]);
+  TEST_ASSERT_EQUAL_HEX8(0x0Du, rxbuf2[15]);
+}
+
 /* **What the card delivered, counted where the station's own counters cannot
  * see it.**
  *
@@ -1463,6 +1672,10 @@ int main(void) {
   RUN_TEST(test_the_second_byte_of_a_transmit_command_does_not_complete_it);
   RUN_TEST(test_a_transmit_is_outstanding_until_its_acknowledge_returns);
   RUN_TEST(test_a_frame_that_never_returns_completes_as_no_return);
+  RUN_TEST(test_data_follows_the_header_in_the_buffer_both_ways);
+  RUN_TEST(test_a_posted_receive_takes_one_message);
+  RUN_TEST(
+      test_acknowledging_a_wire_transmit_leaves_the_receive_counters_alone);
   RUN_TEST(test_only_the_transmit_command_values_queue_a_frame);
   RUN_TEST(test_the_command_registers_drive_the_relay_and_the_receiver);
   RUN_TEST(test_the_idle_words_are_the_manuals_bits_and_not_magic);

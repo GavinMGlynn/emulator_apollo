@@ -555,6 +555,7 @@ def main() -> int:
                      # The ring runner reads its boot PROM before it does
                      # anything else, so not one of its flags is reachable.
                      "--ring-console", "--ring-disk-a", "--ring-disk-b",
+                     "--ring-dump-logical",
                      "--ring-script-b", "--ring-selftest", "--run-ring-probes",
                      # Fitting a card needs a machine to fit it into.
                      "--3c505", "--3c505-rom", "--3c505-tap", "--matrox",

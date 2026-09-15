@@ -4465,7 +4465,9 @@ discipline throughout.
 - **Calendar 24-hour mode, found and closed 2026-09-15** while installing the
   DS5500's SCSI software: the battery held `DM` and not `24/12`, so afternoon
   boots read the PM-flagged hour as up to 140 hours. Three volume stamps
-  matched to the minute. Identity reference now `7048E8ED74D015CF`. Detail in
+  matched to the minute. Identity reference now `7048E8ED74D015CF`
+  -- *re-baselined 2026-09-15 to **`12CFDFC6C64B930F`** by the `[8254]` walk's four
+  hashed counter fields, coverage only (`FINDINGS.md` C293).* Detail in
   `PROJECT_STATUS.md`.
 - [x] **`[030]` §11.6 transcribed whole and priced by the step — closed
   2026-09-15.** 60 → 248 rows over ten stages: §11.6.1–§11.6.18 whole, the five
@@ -5429,7 +5431,18 @@ Only after the reference core is proven, and only under an identity harness.
       frame left -- fixed, `NACKs 0`. What remains is `rcvs = 0` with no receive
       error counted: `RING8_$INT_DEFERRED` takes the packet lengths from the
       receive 8254s, and `[8254]` p. 6-157's load-on-the-next-clock is not what
-      `ap_i8254` does (`RING.md` 145c). **Next: that part, then the run.**
+      `ap_i8254` does (`RING.md` 145c). *(Then: "**Next: that part, then the
+      run.**")*
+      **Done the same day: `lcnode` answers on two booted nodes** (`FINDINGS.md`
+      C293). The 8254 walked whole, then five dump runs of the driver's own drop
+      counters found a transmit extent one word short, the station never
+      keeping a frame's data, a buffer layout the driver contradicts, and the
+      acknowledge of a wire transmit clocking the receive counters.
+      `RING_$BAD_DATA_CNT` 0 against 26/27 receive interrupts; "1 other node
+      responded" on both nodes. **What remains of this item**: remote file
+      access and the distributed single-level store, which need the nodes
+      catalogued (`ctnode`, `008860-A03` ch. 2) -- `lcnode` shows each as "node
+      not catalogued".
 
 ## The `002398-04` whole-document walk
 

@@ -370,6 +370,12 @@ static void print_usage(const char *program_name) {
           "                        --boot-script's format. This is how `lcnode`\n"
           "                        gets typed at a node\n"
           "  --ring-script-b FILE  the same for node B\n"
+          "  --ring-dump-logical ADDR[:LEN]\n"
+          "                        at the end of the run, dump a logical\n"
+          "                        address on each node, translated as\n"
+          "                        --dump-logical does: which of a driver's\n"
+          "                        own counters moved is a question only\n"
+          "                        the guest's memory answers\n"
           "  --ring-rom FILE       the same, with its option ROM placed where\n"
           "                        the boot PROM's expansion scan looks, so the\n"
           "                        firmware's own self-test runs\n"
@@ -1241,6 +1247,11 @@ static const char *g_ring_disk[2] = {NULL, NULL};
  * tell whether one node printed twice or both printed once. */
 static bool g_ring_console = false;
 static const char *g_ring_script[2] = {NULL, NULL};
+/* `--ring-dump-logical`, honoured on both nodes at the end of the run: the
+ * single-machine `--dump-logical`, for the runner where the question is which of
+ * a driver's own counters moved (`RING.md` 145c). */
+static const char *g_ring_dump_logical[AP_MAX_LOGICAL_DUMPS] = {0};
+static unsigned g_ring_dump_logical_count = 0;
 
 /* Serial 1 channel B, and `BB` -- the port and rate the single-machine boot
  * uses, and the rate the DN3500's own firmware configures both ports to at
@@ -2327,10 +2338,42 @@ static int run_ring_two_node(FILE *out, ap_model_id_t model,
           fprintf(out, " %02X", board[i].ring.first_rx_header[b]);
         }
         fprintf(out, "   deposited at %04X", board[i].ring.first_rx_deposit_at);
+        /* The whole frame, sixteen bytes a row: the driver's receive copy
+         * checks the lengths written inside it (`RING.md` 145c). */
+        for (unsigned b = 0; b < board[i].ring.first_rx_frame_bytes; b++) {
+          if (b % 16u == 0u) {
+            fprintf(out, "\n  node %u  ring  rx frame +%03X ", i, b);
+          }
+          fprintf(out, " %02X", board[i].ring.first_rx_frame[b]);
+        }
       }
       fprintf(out, "   (station address %08X, addressed %llu)\n",
               board[i].ring_station.address,
               (unsigned long long)board[i].ring_station.frames_addressed);
+    }
+  }
+  /* `--ring-dump-logical`, per node and through that node's own MMU, exactly as
+   * the single-machine `--dump-logical` translates: the addresses worth asking
+   * about here are a running kernel's. */
+  for (unsigned k = 0; k < g_ring_dump_logical_count; k++) {
+    uint32_t at = 0, length = 0;
+    if (!parse_dump_spec(g_ring_dump_logical[k], &at, &length)) {
+      fprintf(stderr,
+              "apollo: --ring-dump-logical wants ADDR or ADDR:LEN in hex, not"
+              " %s\n",
+              g_ring_dump_logical[k]);
+      continue;
+    }
+    for (unsigned i = 0; i < NODES; i++) {
+      uint32_t physical = 0;
+      if (!ap_machine_translate(&machine[i], at, AP_M68030_FC_SUPERVISOR_DATA,
+                                &physical)) {
+        fprintf(out, "  node %u  logical %08X does not translate\n", i, at);
+        continue;
+      }
+      fprintf(out, "  node %u  logical %08X -> %08X, %u byte(s)\n", i, at,
+              physical, length);
+      dump_memory(out, &board[i], physical, length);
     }
   }
   fprintf(out, "  ring     hash %016llX\n",
@@ -7830,6 +7873,13 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--ring-script-b") == 0 && i + 1 < argc) {
       g_ring_script[1] = argv[i + 1];
+      i += 2;
+      continue;
+    }
+    if (strcmp(argv[i], "--ring-dump-logical") == 0 && i + 1 < argc) {
+      if (g_ring_dump_logical_count < AP_MAX_LOGICAL_DUMPS) {
+        g_ring_dump_logical[g_ring_dump_logical_count++] = argv[i + 1];
+      }
       i += 2;
       continue;
     }

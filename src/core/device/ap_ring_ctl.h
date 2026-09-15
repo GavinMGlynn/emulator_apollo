@@ -422,6 +422,9 @@
  * source for where its length comes from; see `RING.md` 104c. */
 #define AP_RING_CTL_XMIT_HEADER_BYTES 12u
 #define AP_RING_CTL_XMIT_HEADER_WORDS (AP_RING_CTL_XMIT_HEADER_BYTES / 2u)
+/* How much of the first received frame the report keeps: enough for a
+ * `lcnode` request whole (98 bytes) and its software headers. */
+#define AP_RING_CTL_FIRST_FRAME_BYTES 256u
 
 /* ## The frame's real extent, which the driver programs and this used to guess
  *
@@ -626,6 +629,11 @@ typedef struct {
    * and *requires bit 3 clear*, so a model that set it on every write to the
    * first window's `+2` fails there -- measured, not reasoned. `RING.md` 75. */
   bool operation_pending;
+  /* Whether the outstanding operation was a frame the ring carried, rather
+   * than the gate array's internal transmit-to-receive DMA loop. Only the loop
+   * moves words into the receive counters when it is acknowledged; a wire
+   * transmit's words never pass them (`RING.md` 108a, 145g). */
+  bool operation_on_wire;
   /* MISC_CMD's `lpb`, digital loopback (p. 12-32 bit 8). It is what separates
    * a `$2` that starts an operation from one that does nothing -- `RING.md`
    * 123 -- and it is the *only* difference between the two sites that write
@@ -752,6 +760,14 @@ typedef struct {
   uint8_t first_rx_header[AP_RING_CTL_XMIT_HEADER_BYTES];
   uint16_t first_rx_deposit_at;
   bool first_rx_captured;
+  /* **And the whole of that frame, as deposited.** The driver's receive copy
+   * rejects a frame whose own length fields -- header words `+$10` and `+$14` --
+   * disagree with the lengths it took from the receive 8254s, and on two booted
+   * nodes it rejected every one (`RING_$BAD_DATA_CNT` equal to
+   * `RING_$RCV_INT_CNT`, `RING.md` 145c). The twelve bytes above stop before
+   * those fields. */
+  uint8_t first_rx_frame[AP_RING_CTL_FIRST_FRAME_BYTES];
+  uint16_t first_rx_frame_bytes;
 
   /* **The receive side's own log, and the one question it exists to answer.**
    *

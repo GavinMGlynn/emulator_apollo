@@ -17918,3 +17918,103 @@ the count", and Figure 12 clears NULL COUNT only then; `ap_i8254` loads at the
 write. For the 98-byte header-only request this core hands the driver **102 and
 1**; the datasheet, with the header counter three clocks short (`RING.md` 80),
 gives **98 and 0**. Recorded before it is run, as `RING.md` 145c.
+
+## C293 -- two booted nodes answer `lcnode`: six defects between the card and the driver, and the last was an acknowledge
+
+C292 left `netstat -l` at `rcvs = 0` with no receive error counted, and named the
+receive 8254s as the next place to look. Every step below was taken from a
+document or from the guest's own code and counters, not from a guess.
+
+    before  node 0 | No other nodes responded.     Net I/O: rcvs =  0  xmits =  9
+    after   node 0 | 1 other node responded.       Net I/O: rcvs = 26  xmits = 27
+            node 1 | 1 other node responded.       Net I/O: rcvs = 27  xmits = 27
+
+### The part first: `[8254]` walked whole
+
+The ring driver (`RING8_$INT_DEFERRED`, disassembled from the volume's own
+`domain_os7` kernel) takes packet lengths from the receive counters with a NULL
+COUNT branch that only makes sense if a written count reaches the counting
+element on a clock pulse. The 1983 handbook's chapter (pp. 6-150 to 6-161, read
+whole as page images, `docs/references/I8254_WALK.md`) says so -- "the initial
+count will be loaded on the next CLK pulse. This CLK pulse does not decrement
+the count" -- and `ap_i8254` loaded at the write, gave modes 1, 4 and 5 mode 0's
+shape, took mode 2's OUT low at 0, had no BCD, and never cleared CR on a Control
+Word. Predicted before the corrected part ran: subtest 32 would read one count
+short. It read `FC04` against `FC03`, and "runs until exhausted" plus the load
+pulse restored the self-test byte for byte.
+
+**The part alone moved the machine and not the frames.** Four dump runs, each
+with the driver's own counters read out by a new `--ring-dump-logical`, found
+the rest.
+
+### What the guest's counters said, one run at a time
+
+The kernel's load map names the driver's drop counters, so they were dumped on
+both nodes at the end of each run:
+
+| run | `RING_$RCV_INT_CNT` | `RING_$BAD_DATA_CNT` | `RING_$ABORT_CNT` | found |
+| --- | --- | --- | --- | --- |
+| 1 | 9 / 10 | 9 / 10 | 9 / 10 | every frame fails the receive copy's length check |
+| 2 | 9 / 10 | 9 / 10 | 9 / 10 | the frame's own header says 92 bytes; 90 were sent |
+| 3 | 8 / 9 | 8 / 9 | 8 / 9 | header counter `FF70`, data `FFCE`, for a 92-byte header-only request |
+| 4 | 8 / 9 | 8 / 9 | 8 / 9 | byte-identical to 3: the one-shot receive was off the path |
+| 5 | 26 / 27 | **0 / 0** | **0 / 0** | every frame delivered |
+
+The receive copy (`3C4AF58C`) compares the counter-derived header and data
+lengths against words `+$10` and `+$14` of the frame's own software header, and
+rejects a mismatch into `RING_$BAD_DATA_CNT`. Each fix below was read off one of
+those rows.
+
+1. **A count of N moves N + 1 words.** The driver programmed `XMT_HDR = $2D`
+   and built a header whose own length field is `$5C`, 92 bytes. Under the
+   corrected part a counter of N is exhausted after N + 1 pulses, and the ring
+   ROM's table (`$3FF`, 1024 events) says the same. This core sent 45 words.
+2. **The header counter runs three short.** With the load pulse, the driver's
+   `FFFF - count + 4` gives the true length only after three fewer pulses than
+   header bytes -- the same three the ring ROM's loopback expects (`FC03`
+   against `FC00`). Two consumers, one offset; the mechanism is not documented.
+3. **The station never captured a frame's data.** Its data state was entered
+   and never handled, so every card was handed its frames header-only. Found
+   by a unit test of the next item, on its first run.
+4. **Data follows the header in the buffer.** p. 12-29's "1k bytes of header and
+   1k bytes of data" is capacity. The driver's transmit copy calls `RING_$RB_TO`
+   for the header, adds its word count and copies the data from there; the
+   receive copy reads it the same way. This core put data a kilobyte past.
+5. **A posted receive takes one message** -- `002398-04` p. 8-38's REC "set up
+   to receive a message", p. 7-28's "(start the receive)". Documented, and
+   measured to change nothing: `WACKs 0` on both nodes and a byte-identical run.
+6. **Acknowledging a wire transmit clocked the receive counters.** The first
+   window's `XMIT_ACK` is where the internal transmit-to-receive loop's words
+   pass the receive counters, and every completion left an operation pending --
+   a frame the ring carried included. `RING8_$INT` acknowledges every transmit,
+   so each one pulsed `RCV_HDR` and `RCV_PKT` by a transmit's word count. That
+   is what `FF70` and `FFCE` were. Gated on whether the operation went out on
+   the wire, and `RING_$BAD_DATA_CNT` fell to zero.
+
+### The exchange, as the card saw it
+
+    node 0  ring  deposits 26  types 0094 x1 0090 x9 0010 x6 0020 x8 00B0 x2
+    node 1  ring  sent  0010 to 00012345 x6  0020 to 00012345 x8  ...
+
+`0010` is please, addressed; `0020` is thank you (`002398-04` p. 7-31). Node 1
+asked node 0 six things and thanked it eight times, and node 0 answered in kind.
+
+Unchanged and checked: the ring ROM self-test on both revisions (7,263,778
+steps, 1,321,914 reads / 927,828 writes). `ring hash 723C897B5981FB78`.
+
+### And the identity reference moved, by coverage alone
+
+The DN3500 identity boot, which fits no ring, went from `7048E8ED74D015CF` to
+**`12CFDFC6C64B930F`** at the same 350,000,000 instructions and 1,834,623,621
+clocks. `ap_board_hash_ring` is called for every board -- unlike the SCSI adapter
+beside it, which hashes inside a `fitted` group -- so the ring controller's two
+8254s are digested on a machine with no card, and the four fields the walk added
+to each counter change the bytes without changing a value. Proved rather than
+argued: a copy of the tree with only those four `hash_bool` lines removed gives
+`7048E8ED74D015CF` again. The fields stay, because each decides what the next
+CLK pulse does, and the reference is re-baselined.
+
+*Still open, and named*: `RCV_STAT` bits 2:0 are not driven (the glosses cannot
+all be the counters' OUT pins, and the driver tests only `rc2`); the ring window's
+operation flags are not in the state hash; remote file access and the
+distributed single-level store are untried.
