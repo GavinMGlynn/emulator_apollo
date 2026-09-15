@@ -331,6 +331,84 @@ static void test_a_word_access_touches_the_timer_exactly_once(void) {
   TEST_ASSERT_EQUAL_HEX8(0x12u, (uint8_t)(second >> 8));
 }
 
+/* **`RCV_STAT` bits 2:0 are the receive counters' OUT pins**, counter n on bit
+ * n: p. 12-30's "rcv counter output bit 2 <=1 (pkt exceeded max_rcv_cnt)", and
+ * bits 1 and 0 the same for the data and header counters. Each counter is
+ * programmed as `RING8_$INT` programs it -- mode 0, LSB then MSB -- and a mode
+ * 0 OUT is low from the count until terminal count (`[8254]` p. 6-157). The
+ * three read 0 whatever the counters did until 2026-09-15 (`RING.md` 145h). */
+static void
+test_the_receive_status_low_bits_are_the_receive_counters_outputs(void) {
+  static const uint8_t control[3] = {0x30u, 0x70u, 0xB0u};
+  static const uint16_t bit[3] = {AP_RING_CTL_RCV_RC0, AP_RING_CTL_RCV_RC1,
+                                  AP_RING_CTL_RCV_RC2};
+  for (unsigned k = 0; k < 3u; k++) {
+    ap_ring_ctl_t ctl;
+    ap_ring_ctl_reset(&ctl, true);
+    const uint32_t status = AP_RING_CTL_BANK_STATUS + 4u;
+    /* A just-reset card asserts none of them. */
+    TEST_ASSERT_EQUAL_HEX16(0u, ap_ring_ctl_read16(&ctl, true, status) & 7u);
+
+    ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_A + 6u, control[k]);
+    ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_A + 2u * k, 0x02u);
+    ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_A + 2u * k, 0x00u);
+    /* The load pulse and one decrement leave the count running... */
+    for (unsigned pulse = 0; pulse < 2u; pulse++) {
+      ap_i8254_clock_counter(&ctl.a2.timer_a, k);
+      TEST_ASSERT_EQUAL_HEX16(0u, ap_ring_ctl_read16(&ctl, true, status) & 7u);
+    }
+    /* ...and the pulse that reaches terminal count raises that counter's bit
+     * and no other. */
+    ap_i8254_clock_counter(&ctl.a2.timer_a, k);
+    TEST_ASSERT_EQUAL_HEX16(bit[k], ap_ring_ctl_read16(&ctl, true, status) & 7u);
+
+    /* Reprogramming for the next receive takes it down again: mode 0's OUT
+     * "remains high until a new count or a new Mode 0 Control Word". */
+    ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_A + 6u, control[k]);
+    TEST_ASSERT_EQUAL_HEX16(0u, ap_ring_ctl_read16(&ctl, true, status) & 7u);
+  }
+}
+
+/* **`XMIT_STAT`'s tags walk p. 12-31's three states off the transmit
+ * counters.** "11=> hdr being transmitted", "01=> data being transmitted",
+ * "00=> msg complete", each tag "<=0", asserted at 0. With `XMIT_HDR` loaded
+ * header words - 1 and `XMIT_PKT` total words - 1, as the driver loads them,
+ * both count through the header, the header counter reaches terminal count
+ * first and the total counter last, and a mode 0 OUT is low until it does. So
+ * the raw bits read neither, then `xt1` alone, then both. A `PROVISIONAL`
+ * reading -- no page calls the tags counter outputs (`RING.md` 145i). */
+static void test_the_transmit_tags_follow_the_header_and_total_counters(void) {
+  ap_ring_ctl_t ctl;
+  ap_ring_ctl_reset(&ctl, true);
+  const uint32_t status = AP_RING_CTL_BANK_STATUS + 2u;
+  const uint16_t tags = AP_RING_CTL_XMIT_XT1 | AP_RING_CTL_XMIT_XT0;
+
+  /* Two header words in a five-word frame: counts 1 and 4. */
+  ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_B + 6u, 0x30u);
+  ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_B, 0x01u);
+  ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_B, 0x00u);
+  ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_B + 6u, 0x70u);
+  ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_B + 2u, 0x04u);
+  ap_ring_ctl_write8(&ctl, true, AP_RING_CTL_BANK_TIMER_B + 2u, 0x00u);
+  /* `11`: the header. */
+  TEST_ASSERT_EQUAL_HEX16(0u, ap_ring_ctl_read16(&ctl, true, status) & tags);
+
+  for (unsigned word = 0; word < 5u; word++) {
+    if (word < 2u) {
+      ap_i8254_clock_counter(&ctl.a2.timer_b, AP_RING_CTL_XMIT_HDR_CNT);
+    }
+    ap_i8254_clock_counter(&ctl.a2.timer_b, AP_RING_CTL_XMIT_PKT_CNT);
+    const uint16_t read = ap_ring_ctl_read16(&ctl, true, status) & tags;
+    if (word < 1u) {
+      TEST_ASSERT_EQUAL_HEX16(0u, read); /* `11`: still the header */
+    } else if (word < 4u) {
+      TEST_ASSERT_EQUAL_HEX16(AP_RING_CTL_XMIT_XT1, read); /* `01`: data */
+    } else {
+      TEST_ASSERT_EQUAL_HEX16(tags, read); /* `00`: complete */
+    }
+  }
+}
+
 /* Finding 38 again, from the other side: the two windows are separate register
  * sets, not aliases of one. The firmware clears `a1`'s `+2`/`+4`/`+6`/`+400`/
  * `+402` and drives `a2`'s timers, so a model that aliased them would have the
@@ -1692,6 +1770,8 @@ int main(void) {
   RUN_TEST(test_the_init_clear_sequence_does_not_erase_the_presence_gate);
   RUN_TEST(test_the_firmwares_timer_initialisation_reaches_two_8254s);
   RUN_TEST(test_a_word_access_touches_the_timer_exactly_once);
+  RUN_TEST(test_the_receive_status_low_bits_are_the_receive_counters_outputs);
+  RUN_TEST(test_the_transmit_tags_follow_the_header_and_total_counters);
   RUN_TEST(test_the_two_windows_are_separate_register_sets);
   RUN_TEST(test_the_unknown_command_slots_are_storage_and_nothing_more);
   RUN_TEST(test_the_data_port_answers_one_word_behind);

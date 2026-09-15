@@ -4472,6 +4472,13 @@ discipline throughout.
   coverage again (C295), then to **`263FFF9099871086`** when the ring station's
   running state was hashed, coverage a third time (C296).* Detail in
   `PROJECT_STATUS.md`.
+- **The ring card's counter-output status bits, closed 2026-09-15** (C297):
+  `RCV_STAT` bits 2:0 are the receive 8254s' OUT pins, as `[EH]` p. 12-30 names
+  them, and `XMIT_STAT`'s two tags -- driven by nothing and recorded nowhere -- are
+  read as the transmit counters' OUT pins, `PROVISIONAL` (`RING.md` 145h, 145i).
+  *Verification: `ring_ctl_suite` 33 -> 35; the ring ROM self-test byte-identical;
+  both identities unmoved; two nodes rerun C294's workload to its ring hash
+  `F9FAA93BDDA9156E` exactly.* Detail in `PROJECT_STATUS.md`.
 - [x] **`[030]` §11.6 transcribed whole and priced by the step — closed
   2026-09-15.** 60 → 248 rows over ten stages: §11.6.1–§11.6.18 whole, the five
   address tables with their full-format rows composed through Equation (11-2),

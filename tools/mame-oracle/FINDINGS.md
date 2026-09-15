@@ -18018,6 +18018,9 @@ CLK pulse does, and the reference is re-baselined.
 all be the counters' OUT pins, and the driver tests only `rc2`); the ring window's
 operation flags are not in the state hash; remote file access and the
 distributed single-level store are untried.
+*All three since closed* -- remote access and paging in C294, the flags in C295,
+and bits 2:0 in C297, where the parenthesis is corrected: the glosses cannot all
+be *levels* of the OUT pins, but the bits are the pins, as the page says.
 
 ## C294 -- the two nodes read each other's disks, and the read pages across the ring
 
@@ -18145,3 +18148,82 @@ The station is hashed for every board, fitted or not. The change is to
 `ctest` 153/153 on both presets, the ring ROM self-test byte-identical on both
 revisions (7,263,778 steps, 1,321,914 reads / 927,828 writes), and both harnesses
 at identical instructions and clocks.
+
+## C297 -- `RCV_STAT` bits 2:0 are the receive counters' OUT pins, and `XMIT_STAT`'s tags were driven by nothing
+
+`RING.md` 145h left three bits of `+404` reading 0, on the argument that p. 12-30's
+glosses "cannot all be the counters' OUT pins". Re-read as the page image before
+touching code, the page does not leave that open: every one of the three is
+**"rcv counter output bit n <=1"**, and bit n's parenthesis names counter n in
+p. 12-29's order -- `RCV_HDR_CNT` "(hdr rcv in progress)" on 0, `RCV_PKT_CNT`
+"(data rcv in progress)" on 1, `RCV_MAX_CNT` "(pkt exceeded max_rcv_cnt)" on 2.
+What cannot be a pin level is the *gloss* on bits 1 and 0, not the bit.
+
+**Searched first, and what each gave.** `002398-04` pp. 12-29, 12-30 and 12-31 as
+300 dpi images; the text layers of `002398-03` Rev 3 and `008778-03` carry the
+wording nowhere, and `002398-04`'s only on pp. 12-30/12-31. **`002398-01` Rev 1's
+ring pages, 6-30..6-33 and 6-39..6-44, were read at 400 dpi** -- the DN3xx board
+at `9800` and the DN4xx/DN600 at `BC00`. Both move frames through DMA channels
+and expose no 8254, so neither has counter outputs or tags; the DN4xx receive
+status does carry `EORERR`, "one or both of the message fields was bigger than
+the DMA channel was set up for" (p. 6-40), the latched ancestor of `rc2`. The web
+has nothing on "hdr rcv in progress" or `max_rcv_cnt`. The driver
+(`domain_os7`, `RING8_$INT`) supplies the rest: all three receive counters are
+programmed in **mode 0** (`30`, `70`, `B0` at `3C4AEC74`-`3C4AECB0`), `RCV_HDR` and
+`RCV_DAT` reloaded with `FFFF` after every receive, `RCV_MAX` with the word at
+`3C4D9A68` -- A5 is `3C4D9000`, from `RING_$ABORT_CNT` at `$A74(A5)` --, and the
+saved `RCV_STAT` tested with `andi.w #$c04`: `rc2` beside `pke` and `de`, and no
+other low bit.
+
+**So `rc2` is exact**: a mode 0 OUT rises at terminal count (`[8254]` p. 6-157),
+which is "pkt exceeded max_rcv_cnt". Bits 1 and 0 are the other two pins, and
+their glosses are read as naming the counter -- a mode 0 OUT is *low* while the
+counter counts, so "in progress" is not a level it holds. `PROVISIONAL`, at no
+cost to the held driver, which reloads both with `FFFF` and never reads them.
+
+### The same page's neighbour had a gap nobody had recorded
+
+p. 12-31: **"xmt tag bit 1 <=0", "xmt tag bit 0 <=0"**, and "xmt tags indicate
+transmitter state: 00=> msg complete, 01=> data being transmitted, 11=> hdr being
+transmitted". `AP_RING_CTL_COMMAND_STATUS_IDLE` held both clear and no path ever
+set either; no `RING.md` row, header comment or plan item named them.
+
+Read as `XMIT_HDR_CNT`'s OUT on `xt1` and `XMIT_PKT_CNT`'s on `xt0`, with the table
+in **asserted** levels, because it is the one reading under which the notation and
+the part agree:
+
+- `<=` marks the asserting level on both registers -- `rc2 <=1` asserts at OUT
+  high, the terminal count its gloss names;
+- a mode 0 OUT is low while counting, so `<=0` asserts "still counting";
+- the driver loads `XMIT_HDR` with header words - 1 and `XMIT_PKT` with total
+  words - 1, so both count through the header (`11`), the header counter expires
+  first (`01`), and the total counter last (`00`).
+
+Reading the table as raw levels fits no pin without an inverter on this register
+alone. `PROVISIONAL` twice over: no page calls the tags counter outputs, and the
+transfer is instantaneous here, so the tags read complete as soon as a frame is
+queued. The held driver tests only `nct`, `xby` and the high byte (`3C4AF02E`,
+`3C4AF294`, `3C4AF2C4`, `3C4AF38A`).
+
+### Verification
+
+- `ring_ctl_suite` 33 -> 35: each receive counter raising its own bit, and no
+  other, on the pulse that reaches terminal count and dropping it on the next
+  control word; the transmit tags walking neither, `xt1`, both across a two-word
+  header in a five-word frame. `ctest` 153/153 on both presets.
+- The ring ROM self-test is byte-identical on both revisions (7,263,778 steps,
+  1,321,914 reads / 927,828 writes): its masks are `(+402) & $FFF0` and
+  `(+404) & $FFF8`, which reach neither.
+- Both identity references unmoved -- DN3500 `263FFF9099871086` at 350,000,000
+  instructions and 1,834,623,621 clocks, DS5500 `675A3BBF26127F42` at 4,456,406
+  and 27,925,641 -- as they must be: the pins were already hashed.
+- **Two booted nodes, the C294 workload** (`ctnode -update -l`, `ld` and `catf`
+  across the ring, `lcnode`, `netstat -l`): every step completes, `rcvs = 51` and
+  `52`, one remote page-in issued and serviced each way, NACKs 0, and **ring hash
+  `F9FAA93BDDA9156E` -- C294's exactly**, so the traffic is bit-identical. That is
+  the prediction, not a sign the change is off the path: the driver reads the
+  tags never, `rc1`/`rc0` never, and `rc2` only when a frame reaches
+  `max_rcv_cnt`. The run's dump of `3C4D9A60` gives that word as `FF00 0300` --
+  the two bytes `FF`, `03` the driver writes to `RCV_MAX_CNT`, so **`$3FF`, and
+  `rc2` rises on a frame's 1,024th word**, which no frame here reaches;
+  `RING_$RCV_INT_CNT` reads `0033`/`0034`, the same 51 and 52 `netstat` prints.

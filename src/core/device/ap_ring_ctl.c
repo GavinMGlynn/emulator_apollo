@@ -1288,10 +1288,40 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
        * commanding a transmit. MISC_STAT's bit 15 has been derived from
        * `connected` since finding 40; this is the same fact in the other
        * register. */
+      /* **And the transmit tags are the transmit counters' OUT pins.** p. 12-31
+       * gives `xt1` and `xt0` as "xmt tag bit 1 <=0" and "bit 0 <=0", and
+       * "xmt tags indicate transmitter state: 00=> msg complete, 01=> data
+       * being transmitted, 11=> hdr being transmitted". Nothing drove them:
+       * the idle constant held both clear and no path set either.
+       *
+       * Read as `XMIT_HDR_CNT`'s OUT on `xt1` and `XMIT_PKT_CNT`'s on `xt0`,
+       * with the table in asserted levels, because that is the one reading
+       * under which the page's notation and the part agree. `<=0` asserts at
+       * 0; a mode 0 counter holds OUT low while it counts and raises it at
+       * terminal count (`[8254]` p. 6-157); and the driver loads the header
+       * counter with header words - 1 and the total counter with total words
+       * - 1. So both count through the header (both asserted, `11`), the
+       * header counter expires first (`01`), and the total counter last
+       * (`00`). The receive half of p. 12-30 names its low bits "rcv counter
+       * output" outright, counter n on bit n, and puts `<=1` on the one whose
+       * gloss is a terminal count -- the same pins, the same notation.
+       *
+       * `PROVISIONAL` twice: no page calls these two counter outputs, and the
+       * transfer is instantaneous here, so the tags read complete as soon as a
+       * frame is queued. The held driver never reads them -- it tests `nct`,
+       * `xby` and the high byte. `RING.md` 145i. */
       return (uint16_t)(
           (w->xmit_status & 0xFF00u) |
-          ((w->command_402_status & (uint16_t)~AP_RING_CTL_XMIT_NCT) |
-           (w->connected ? 0u : AP_RING_CTL_XMIT_NCT)));
+          ((w->command_402_status &
+            (uint16_t)~(AP_RING_CTL_XMIT_NCT | AP_RING_CTL_XMIT_XT1 |
+                        AP_RING_CTL_XMIT_XT0)) |
+           (w->connected ? 0u : AP_RING_CTL_XMIT_NCT) |
+           (ap_i8254_out(&w->timer_b, AP_RING_CTL_XMIT_HDR_CNT)
+                ? AP_RING_CTL_XMIT_XT1
+                : 0u) |
+           (ap_i8254_out(&w->timer_b, AP_RING_CTL_XMIT_PKT_CNT)
+                ? AP_RING_CTL_XMIT_XT0
+                : 0u)));
     case 4u:
       /* The same shape one register along: subtest 15 requires
        * `(+404) & $F8 == $E0` after the firmware has written only the command
@@ -1299,7 +1329,34 @@ uint16_t ap_ring_ctl_read16(ap_ring_ctl_t *ctl, bool second_window,
        * these three are the whole of what the ROM asserts about either status
        * half; nothing else is answered. */
       /* p. 12-30's RCV_STS, high byte, on the same reasoning as `+402`. */
-      return (uint16_t)((w->rcv_status & 0xFF00u) | w->command_404_status);
+      /* **Bits 2:0 are the receive counters' OUT pins**, which p. 12-30 says in
+       * so many words: "rcv counter output bit 2 <=1", "bit 1 <=1", "bit 0
+       * <=1", and counter n is bit n -- `RCV_MAX_CNT` "(pkt exceeded
+       * max_rcv_cnt)", `RCV_PKT_CNT` "(data rcv in progress)", `RCV_HDR_CNT`
+       * "(hdr rcv in progress)". They read 0 whatever the counters did.
+       *
+       * `rc2` is exact: the driver programs `RCV_MAX` in mode 0 (`B0`) with
+       * `max_rcv_cnt` before every receive, OUT rises at terminal count, and
+       * `RING8_$INT` tests the bit with `pke` and `de` (`andi.w #$c04`).
+       * **The glosses on bits 1 and 0 are not levels of a mode 0 pin** -- OUT
+       * is *low* while such a counter counts -- so they are read as naming the
+       * counter, not the level. `PROVISIONAL`, at no cost to the held driver:
+       * it reloads both with `FFFF` after every receive, so neither reaches
+       * terminal count in a frame, and it never reads them. `RING.md` 145h. */
+      return (uint16_t)(
+          (w->rcv_status & 0xFF00u) |
+          (w->command_404_status &
+           (uint16_t)~(AP_RING_CTL_RCV_RC2 | AP_RING_CTL_RCV_RC1 |
+                       AP_RING_CTL_RCV_RC0)) |
+          (ap_i8254_out(&w->timer_a, AP_RING_CTL_RCV_MAX_CNT)
+               ? AP_RING_CTL_RCV_RC2
+               : 0u) |
+          (ap_i8254_out(&w->timer_a, AP_RING_CTL_RCV_PKT_CNT)
+               ? AP_RING_CTL_RCV_RC1
+               : 0u) |
+          (ap_i8254_out(&w->timer_a, AP_RING_CTL_RCV_HDR_CNT)
+               ? AP_RING_CTL_RCV_RC0
+               : 0u));
     default:
       /* `+406` is `RAM_DATA`, the buffer's data port -- finding 46a's
        * read-ahead latch, which answers with the word the *previous* access

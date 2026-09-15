@@ -238,6 +238,9 @@
 #define AP_RING_CTL_XMIT_XEN 0x0040u /* 1 => transmit enable */
 #define AP_RING_CTL_XMIT_IBY 0x0020u /* 0 => initialize busy */
 #define AP_RING_CTL_XMIT_XBY 0x0010u /* 0 => transmit busy */
+/* The two tags are read as the OUT pins of `XMIT_HDR_CNT` (`xt1`) and
+ * `XMIT_PKT_CNT` (`xt0`), `PROVISIONAL`; until 2026-09-15 nothing drove them
+ * (`RING.md` 145i). */
 #define AP_RING_CTL_XMIT_XT1 0x0002u /* 0 => transmit tag bit 1 */
 #define AP_RING_CTL_XMIT_XT0 0x0001u /* 0 => transmit tag bit 0 */
 
@@ -289,7 +292,8 @@
 #define AP_RING_CTL_RCV_BPE 0x0010u /* 1 => bi-phase error (phs_rs) */
 #define AP_RING_CTL_RCV_ESB 0x0008u /* elastic-store buffer error (esb_rs) */
 /* 2:0 are the three receive counter outputs, one per 8254 counter -- see
- * `AP_RING_CTL_RCV_*_CNT` above. */
+ * `AP_RING_CTL_RCV_*_CNT` above. *Driven from each counter's OUT pin since
+ * 2026-09-15, counter n on bit n; until then they read 0 (`RING.md` 145h).* */
 #define AP_RING_CTL_RCV_RC2 0x0004u /* packet exceeded max_rcv_cnt */
 #define AP_RING_CTL_RCV_RC1 0x0002u /* data receive in progress */
 #define AP_RING_CTL_RCV_RC0 0x0001u /* header receive in progress */
