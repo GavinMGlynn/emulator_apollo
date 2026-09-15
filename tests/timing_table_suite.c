@@ -127,8 +127,9 @@ static void test_the_divides_are_marked_data_dependent(void) {
   }
   /* DIVS.W, DIVS.L, DIVU.W, DIVU.L, §11.6.8's four `EA,Dn` forms of the word
    * multiplies and divides, which carry `*+`, §11.6.16's two `CAS2` rows,
-   * which carry `+`, and its four bounds-check rows that carry `+`. */
-  TEST_ASSERT_EQUAL_UINT(14u, marked);
+   * which carry `+`, its four bounds-check rows that carry `+`, and §11.6.8's
+   * five rows the extension word selects: `CMP2` and the long `EA,Dn` forms. */
+  TEST_ASSERT_EQUAL_UINT(19u, marked);
 }
 
 /* The lookup returns NULL for what is not transcribed, and that is the honest
@@ -515,12 +516,10 @@ static void test_every_row_is_returned_by_some_instruction(void) {
     }
   }
 
+  /* `DIVS.L Dn,Dn` and `DIVU.L Dn,Dn` were the two named exceptions until
+   * 2026-09-15, when the selected lookup took the extension word's signed bit.
+   * Every row is reached now. */
   for (unsigned i = 0; i < count; i++) {
-    if (form_is(&table[i], "DIVS.L Dn,Dn") ||
-        form_is(&table[i], "DIVU.L Dn,Dn")) {
-      TEST_ASSERT_FALSE_MESSAGE(reached[i], table[i].form);
-      continue;
-    }
     TEST_ASSERT_TRUE_MESSAGE(reached[i], table[i].form);
   }
 }
@@ -693,7 +692,14 @@ static void test_the_rows_an_extension_or_outcome_selects_are_found(void) {
       {0x4E73u, 0x000Bu, false, "RTE (Long Fault)", "RTE, format $B"},
       {0x4E73u, 0x0007u, false, nullptr, "RTE, format $7 -- a 68040 frame"},
       {0x02D0u, 0x0800u, false, "CHK2 Mem,Rn (No Exception)", "CHK2.W (A0),D0"},
-      {0x02D0u, 0x0000u, false, nullptr, "CMP2.W (A0),D0 -- no row on the page"},
+      {0x02D0u, 0x0000u, false, "CMP2 EA,Rn", "CMP2.W (A0),D0 -- §11.6.8's"},
+      {0x4C10u, 0x0800u, false, "MULS.L EA,Dn", "MULS.L (A0),D0"},
+      {0x4C3Cu, 0x0000u, false, "MULU.L EA,Dn", "MULU.L #,D0"},
+      {0x4C08u, 0x0800u, false, nullptr, "MULS.L A0,D0 is not an instruction"},
+      {0x4C41u, 0x0800u, false, "DIVS.L Dn,Dn", "DIVS.L D1,D0"},
+      {0x4C41u, 0x0000u, false, "DIVU.L Dn,Dn", "DIVU.L D1,D0"},
+      {0x4C50u, 0x0000u, false, "DIVU.L EA,Dn", "DIVU.L (A0),D0"},
+      {0x4C80u, 0x0000u, false, nullptr, "MOVEM, not a long multiply"},
       {0x02C0u, 0x0800u, false, nullptr, "CHK2.W D0 -- not a control mode"},
   };
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
@@ -927,6 +933,14 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
        "two words"},
       {"CHK2 Mem,Rn (Exception Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
        "refill"},
+      /* §11.6.8's extension-word forms, two words each. */
+      {"CMP2 EA,Rn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"MULS.L EA,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"MULU.L EA,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"DIVS.L Dn,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"DIVU.L Dn,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"DIVS.L EA,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
+      {"DIVU.L EA,Dn", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "two words"},
       {"Bcc (Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
       {"DBcc (cc False, Count Not Expired)",
        AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "it branches"},

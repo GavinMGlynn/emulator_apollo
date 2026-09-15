@@ -4491,10 +4491,17 @@ discipline throughout.
   **Stage 5e**: `MOVEM` built for the registers it moved; §11.6.7 whole.
   **Next**: the long multiplies and divides by extension word, §11.6.6's
   mode-6 destinations and the full-format address rows.
+  **Stage 5f**: §11.6.8 whole — `CMP2` and the long multiplies and divides by
+  extension word, 222 → 227, every row reachable — and a 5d defect fixed:
+  `execute_bounds` never left its extension word, so no in-bounds `CHK2` was
+  priced. **Next**: §11.6.6's mode-6 destinations and the full-format address
+  rows, which both need the step to read mode 6's extension format; and the
+  address rows' own no-cache difference, which the prefetch exposure omits.
   **Owed, all read as page images**: §11.6.6 brief/full-format destinations
-  (needs the extension word), the long multiplies and divides, and
+  (needs the extension word), the address rows' own no-cache difference in
+  the prefetch exposure, and
   §11.6.4's and §11.6.5's full-format rows. *(Before stage 4b this also named
-  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17; before 5c, §11.6.18; before 5d, `CHK`/`CHK2`; before 5e, `MOVEM`.)*
+  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17; before 5c, §11.6.18; before 5d, `CHK`/`CHK2`; before 5e, `MOVEM`; before 5f, the long multiplies and divides.)*
   *(Before stage 4a this list also named §11.6.7, §11.6.16's rest and "the
   §11.6.4 (calculate immediate) and §11.6.5 (jump) tables, which do not exist
   in the code".)*

@@ -996,6 +996,54 @@ static void test_the_scsi_wait_loops_memory_forms_compose_from_their_tables(
   }
 }
 
+/* `CHK2` and `CMP2` on a running machine, told apart by extension bit 11 --
+ * which the executor has to leave for the timing, and until 2026-09-15 did
+ * not, so an in-bounds `CHK2` went unpriced whatever its lookup's test said.
+ * Warm, each composes with §11.6.2's `#<data>.W,(An)` (`3(1/0/0)`, head 1,
+ * tail 1): `CHK2` to 20 and `CMP2` to 22, the bounds pair at `(A0)` being two
+ * reads. Cold is not checked: the address row's own no-cache difference is not
+ * in the step's prefetch exposure, which is a named gap. */
+static void test_chk2_and_cmp2_are_told_apart_by_their_extension_word(void) {
+  static const struct {
+    uint16_t extension;
+    const char *form;
+  } CASES[] = {{0x0800u, "CHK2 Mem,Rn (No Exception)"},
+               {0x0000u, "CMP2 EA,Rn"}};
+
+  for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
+    const ap_m68030_table_entry_t *row =
+        ap_m68030_timing_for_selected(0x02D0u, CASES[c].extension, false);
+    TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[c].form);
+    const ap_m68030_ea_timing_t *ea = ap_m68030_ea_fetch_immediate_timing(
+        AP_M68030_EA_ADDRESS_INDIRECT, false);
+    ap_m68030_overlap_state_t composed = ap_m68030_overlap_begin();
+    ap_m68030_ea_timing_compose(&composed, ea, &row->timing);
+    const uint64_t cache_case = ap_m68030_overlap_total(&composed);
+
+    blank();
+    ap_machine_t m;
+    ap_machine_init(&m, ram, RAM_BYTES);
+    ap_machine_reset(&m, PROGRAM, STACK);
+    write_cacr(&m, CACR_EI);
+    TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM, 2u, 0x02D0u));
+    TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 2u, 2u, CASES[c].extension));
+    m.cpu.regs.a[0] = 0x00004000u; /* bounds 0..0, and D0 is 0: in bounds */
+
+    uint64_t previous = 0;
+    for (unsigned i = 0; i < 5u; i++) {
+      m.cpu.regs.pc = PROGRAM;
+      ap_m68030_fetch_reset(&m.cpu.fetch, PROGRAM);
+      previous = m.cpu.clocks;
+      TEST_ASSERT_EQUAL_INT_MESSAGE(AP_M68030_STEP_EXECUTED,
+                                    ap_machine_step(&m).status, CASES[c].form);
+      if (i > 0u) {
+        TEST_ASSERT_EQUAL_UINT64_MESSAGE(cache_case, m.cpu.clocks - previous,
+                                         CASES[c].form);
+      }
+    }
+  }
+}
+
 /* §11.6.17's `TRAP #n` on a running machine, warm: `18(1/0/4)` is the trap,
  * the four-word frame and the vector, and on a long-aligned stack with the data
  * cache off the step runs exactly that bus -- the status register, a program
@@ -3114,6 +3162,7 @@ int main(void) {
   RUN_TEST(test_every_transcribed_row_matches_both_published_columns);
   RUN_TEST(test_the_address_forms_compose_from_their_own_tables);
   RUN_TEST(test_a_trap_costs_its_published_cache_case_warm);
+  RUN_TEST(test_chk2_and_cmp2_are_told_apart_by_their_extension_word);
   RUN_TEST(test_an_rte_costs_its_published_cache_case_warm);
   RUN_TEST(test_the_footnoted_memory_forms_compose_to_the_manuals_total);
   RUN_TEST(test_the_scsi_wait_loops_memory_forms_compose_from_their_tables);

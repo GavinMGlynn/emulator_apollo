@@ -4191,6 +4191,7 @@ static bool execute_long_muldiv(ap_m68030_cpu_t *cpu,
   if (!next_word(cpu, clocks, &extension)) {
     return false;
   }
+  cpu->timing_extension = extension; /* §11.6.8 prices by its signed bit */
 
   const unsigned low_register = (unsigned)((extension >> 12) & 0x7u);
   const bool is_signed = (extension & 0x0800u) != 0u;
@@ -6690,6 +6691,11 @@ static bool execute_bounds(ap_m68030_cpu_t *cpu,
   if (!next_word(cpu, clocks, &extension)) {
     return false;
   }
+  /* §11.6 tells `CHK2` from `CMP2` by bit 11 of this word. Until 2026-09-15 it
+   * was not left here, so the selected lookup always saw zero and no in-bounds
+   * `CHK2` was ever priced -- a lookup whose test hands it the word directly
+   * cannot see that nothing hands it the word at run time. */
+  cpu->timing_extension = extension;
 
   const ap_m68030_bounds_kind_t kind =
       ap_m68030_bounds_kind(bounds, extension);

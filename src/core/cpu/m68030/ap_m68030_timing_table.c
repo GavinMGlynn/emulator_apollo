@@ -268,6 +268,12 @@ enum {
   ROW_CHK_EA_DN_TAKEN,
   ROW_CHK2,
   ROW_CHK2_TAKEN,
+  /* §11.6.8's rows the extension word selects. */
+  ROW_CMP2,
+  ROW_MULS_L_EA,
+  ROW_MULU_L_EA,
+  ROW_DIVS_L_EA,
+  ROW_DIVU_L_EA,
   ROW_COUNT,
 };
 
@@ -291,9 +297,9 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     /* The long divides are `**` on the page, not unmarked as they were first
      * written here: the extension word is fetched through §11.6.2. Unreachable
      * by a one-word lookup either way, so this is fidelity, not a price. */
-    [ROW_DIVS_L] = {"DIVS.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 90, .no_cache_case = 90, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_DIVS_L] = {"DIVS.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 90, .no_cache_case = 90, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_DIVU_W] = {"DIVU.W Dn,Dn", {.head = 2, .tail = 0, .cache_case = 44, .no_cache_case = 44, .prefetches = 1}, true, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
-    [ROW_DIVU_L] = {"DIVU.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 78, .no_cache_case = 78, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_DIVU_L] = {"DIVU.L Dn,Dn", {.head = 6, .tail = 0, .cache_case = 78, .no_cache_case = 78, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
 
     /* The memory-destination forms. These are the first rows whose `NCC`
      * exceeds their `CC`: `3(0/0/1)` against `4(0/1/1)`, so the write hides
@@ -785,6 +791,19 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_CHK_EA_DN_TAKEN] = {"CHK EA,Dn (Exception Taken)", {.head = 0, .tail = 0, .cache_case = 28, .no_cache_case = 30, .reads = 1, .writes = 4, .prefetches = 3}, true, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_CHK2] = {"CHK2 Mem,Rn (No Exception)", {.head = 2, .tail = 0, .cache_case = 18, .no_cache_case = 18, .reads = 1, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_CHK2_TAKEN] = {"CHK2 Mem,Rn (Exception Taken)", {.head = 2, .tail = 0, .cache_case = 40, .no_cache_case = 42, .reads = 2, .writes = 4, .prefetches = 3}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+
+    /* §11.6.8's rows the extension word selects, from the page image
+     * (p. 11-41). All `**`, "Add Fetch Immediate Effective Address Time" --
+     * §11.6.2 through the extension word -- and all `+`. `CMP2` is here rather
+     * than beside `CHK2` in §11.6.16, and costs two more. The long multiplies
+     * have one row each whatever the source; the long divides a register row,
+     * above, and this one. The 64-bit forms, extension bit 10, print no row of
+     * their own. */
+    [ROW_CMP2] = {"CMP2 EA,Rn", {.head = 2, .tail = 0, .cache_case = 20, .no_cache_case = 20, .reads = 1, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MULS_L_EA] = {"MULS.L EA,Dn", {.head = 2, .tail = 0, .cache_case = 44, .no_cache_case = 44, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_MULU_L_EA] = {"MULU.L EA,Dn", {.head = 2, .tail = 0, .cache_case = 44, .no_cache_case = 44, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_DIVS_L_EA] = {"DIVS.L EA,Dn", {.head = 0, .tail = 0, .cache_case = 90, .no_cache_case = 90, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_DIVU_L_EA] = {"DIVU.L EA,Dn", {.head = 0, .tail = 0, .cache_case = 78, .no_cache_case = 78, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
@@ -968,14 +987,34 @@ ap_m68030_timing_for_selected(uint16_t instruction, uint16_t extension,
     }
   }
 
-  /* `CHK2`, `0000 0ss0 11` with a size of `00`-`10` and extension bit 11 set.
-   * Clear, it is `CMP2`, for which §11.6 prints no row. In bounds; out of
-   * bounds is the exception's row, by vector 6. */
+  /* `CHK2` and `CMP2`, `0000 0ss0 11` with a size of `00`-`10`: extension bit
+   * 11 set is `CHK2` (§11.6.16, in bounds; out of bounds is vector 6's row),
+   * clear is `CMP2` (§11.6.8).
+   *
+   * *Corrected 2026-09-15. This read:* "Clear, it is `CMP2`, for which §11.6
+   * prints no row." *§11.6.8's second page prints it; the search had stopped at
+   * §11.6.16.* */
   if ((instruction & 0xF9C0u) == 0x00C0u && ((instruction >> 9) & 0x3u) != 0x3u) {
-    if (!control || (extension & 0x0800u) == 0u) {
+    if (!control) {
       return nullptr;
     }
-    return &TABLE[ROW_CHK2];
+    return &TABLE[(extension & 0x0800u) != 0u ? ROW_CHK2 : ROW_CMP2];
+  }
+
+  /* §11.6.8's long multiplies and divides, `0100 1100 0x`: bit 6 clear
+   * multiplies and set divides, and extension bit 11 is the signed form. The
+   * source is any data mode, so an address register and mode 7's unassigned
+   * registers have no row. */
+  if ((instruction & 0xFF80u) == 0x4C00u && mode != 0x1u &&
+      !(mode == 0x7u && reg > 0x4u)) {
+    const bool is_signed = (extension & 0x0800u) != 0u;
+    if ((instruction & 0x0040u) == 0u) {
+      return &TABLE[is_signed ? ROW_MULS_L_EA : ROW_MULU_L_EA];
+    }
+    if (mode == 0x0u) {
+      return &TABLE[is_signed ? ROW_DIVS_L : ROW_DIVU_L];
+    }
+    return &TABLE[is_signed ? ROW_DIVS_L_EA : ROW_DIVU_L_EA];
   }
 
   /* `CAS2`, `$0CFC` and `$0EFC` -- ahead of `CAS`, whose group they sit in with
