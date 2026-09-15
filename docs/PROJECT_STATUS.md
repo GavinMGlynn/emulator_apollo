@@ -6109,6 +6109,18 @@ with it**, to `3B8111B6466415A8` at the same 4,456,406 instructions and
 hashing the ring as it was before both changes reproduces `386D6B4E902E34A1`
 exactly. `FINDINGS.md` C295.
 
+**The reference is `263FFF9099871086` as of the ring station's running state
+being hashed, 2026-09-15**, at **1,834,623,621 clocks**, coverage a third time.
+The station's symbol window and its fill count, the bit waiting to be forwarded,
+both bi-phase levels, the token claim and strip flags, the own-frame strip count,
+the transmit acknowledge latch, the token-loss and strip timers, a token being
+originated, and `frames_copied` -- the other half of the controller's deposit
+edge -- were all read back by the core and none was digested. The change is to
+`ap_board_state.c` alone; `ctest` is 153/153 on both presets and the ring ROM
+self-test is byte-identical on both revisions. **The DS5500 reference moves with
+it**, to `675A3BBF26127F42` at the same 4,456,406 instructions and 27,925,641
+clocks. `FINDINGS.md` C296.
+
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it
 should not touch a DN3500. Checking that by reasoning is not the standard here,

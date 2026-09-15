@@ -1213,6 +1213,37 @@ void ap_board_hash_ring_station(ap_hash_t *st, const ap_ring_station_t *s) {
   ap_hash_u32(st, s->rx_late_bits);
   ap_hash_u8(st, s->rx_late);
   hash_bool(st, s->rx_frame_error);
+  /* **And the station's own running state, which the hash had left out.**
+   * Listed field by field against every read in `src/core`: the symbol window
+   * and its fill count, the bit waiting to be forwarded, both bi-phase levels,
+   * the token claim and strip flags (the controller reads `stripping` to call a
+   * transmit abandoned), the own-frame strip count, the acknowledge latch the
+   * controller reads back, the token-loss and strip timers, a token being
+   * originated, and `frames_copied`, which is the other half of the
+   * controller's deposit edge. Two stations mid-frame in different places
+   * hashed alike. What stays out is report-only or read only by the probe
+   * harness: `frames_seen`, `frames_wacked`, `frames_addressed`, `tokens_seen`,
+   * `claims_made`, `forced_tokens`, `strip_timeouts`, `bits_forwarded` and
+   * `saw_biphase_error`. */
+  ap_hash_u64(st, s->frames_copied);
+  hash_bool(st, s->tx_seen_own_frame_start);
+  ap_hash_u64(st, (uint64_t)s->tx_stripped_own);
+  ap_hash_u8(st, s->tx_ack);
+  hash_bool(st, s->tx_ack_valid);
+  ap_hash_u16(st, s->window);
+  ap_hash_u32(st, s->bits_seen);
+  hash_bool(st, s->pending_bit);
+  hash_bool(st, s->pending_valid);
+  hash_bool(st, s->tx_level);
+  hash_bool(st, s->rx_level);
+  hash_bool(st, s->rx_level_valid);
+  hash_bool(st, s->wants_ring);
+  hash_bool(st, s->holds_ring);
+  hash_bool(st, s->stripping);
+  ap_hash_u64(st, s->bits_since_token);
+  ap_hash_u64(st, s->bits_stripping);
+  ap_hash_u16(st, s->originate_symbol);
+  ap_hash_u8(st, s->originate_left);
   if (s->rx_buffer != NULL) {
     ap_hash_u8(st, 0x01u);
     ap_hash_bytes(st, s->rx_buffer,

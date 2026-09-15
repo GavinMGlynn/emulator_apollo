@@ -18106,3 +18106,42 @@ both revisions.
 gap -- `stripping`, `holds_ring`, `wants_ring`, the transmit acknowledge latch and
 the station's bit-clock state are among the fields it does not digest. That is
 the station's own audit.
+*Done 2026-09-15* -- C296 below.
+
+## C296 -- the ring station's running state joins the hash, and both references move a third time
+
+C295 closed the controller's half and named this one: `ap_board_hash_ring_station`
+digested the station's receive capture and transmit buffer and left its running
+state out. The audit took the same shape -- every field of `ap_ring_station_t`
+against every read of it in `src/core` and `src/frontend`, listed whole-word and
+read line by line, never counted.
+
+**Live, and now hashed** (19): the symbol `window` and `bits_seen`, which decide
+whether a token or frame start is recognised; `pending_bit` and `pending_valid`,
+the bit to forward next; `tx_level`, `rx_level` and `rx_level_valid`, the
+bi-phase encoder and decoder; `wants_ring`, `holds_ring` and `stripping`, the
+claim and strip state -- the controller reads `stripping` to call a transmit
+abandoned; `tx_seen_own_frame_start` and `tx_stripped_own`, which end the strip on
+the station's own frame; `tx_ack` and `tx_ack_valid`, the acknowledge latch the
+controller reads back; `bits_since_token` and `bits_stripping`, the token-loss and
+strip timers; `originate_symbol` and `originate_left`, a token being sent; and
+`frames_copied`, which the controller compares against the now-hashed
+`rx_copied_seen` to decide whether to deposit.
+
+**Report- or probe-only, and left out** (9): `frames_seen`, `frames_wacked`,
+`frames_addressed`, `forced_tokens` and `claims_made` are read only by the
+frontend's reports; `tokens_seen` and `saw_biphase_error` only by the ring probe
+harness; `strip_timeouts` and `bits_forwarded` by nothing.
+
+### Both references, coverage only
+
+| harness | before | after | instructions | clocks |
+| --- | --- | --- | --- | --- |
+| DN3500 `identity-boot.sh` | `73ABDD5E2E7CD2E2` | `263FFF9099871086` | 350,000,000 | 1,834,623,621 |
+| DS5500 `dn5500-identity.sh` | `3B8111B6466415A8` | `675A3BBF26127F42` | 4,456,406 | 27,925,641 |
+
+The station is hashed for every board, fitted or not. The change is to
+`ap_board_state.c` alone, which cannot alter execution, and the checks agree:
+`ctest` 153/153 on both presets, the ring ROM self-test byte-identical on both
+revisions (7,263,778 steps, 1,321,914 reads / 927,828 writes), and both harnesses
+at identical instructions and clocks.

@@ -4469,7 +4469,8 @@ discipline throughout.
   -- *re-baselined 2026-09-15 to **`12CFDFC6C64B930F`** by the `[8254]` walk's four
   hashed counter fields, coverage only (`FINDINGS.md` C293), then to
   **`73ABDD5E2E7CD2E2`** when the ring card's live control state was hashed,
-  coverage again (C295).* Detail in
+  coverage again (C295), then to **`263FFF9099871086`** when the ring station's
+  running state was hashed, coverage a third time (C296).* Detail in
   `PROJECT_STATUS.md`.
 - [x] **`[030]` §11.6 transcribed whole and priced by the step — closed
   2026-09-15.** 60 → 248 rows over ten stages: §11.6.1–§11.6.18 whole, the five

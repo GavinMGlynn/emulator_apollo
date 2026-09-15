@@ -26,11 +26,15 @@
 # ## The reference
 #
 #     executed     4456406 instruction(s)
-#     state hash   3B8111B6466415A8
+#     state hash   675A3BBF26127F42
 #     final PC     00002926 (boot PROM)
 #     clocks       27925641
 #
-# As of 2026-09-15, after the ring controller's state was hashed whole. *It was
+# As of 2026-09-15, after the ring station's running state was hashed too -- the
+# symbol window, bi-phase levels, token claim and strip state, acknowledge latch
+# and timers -- coverage again, at the same instructions and clocks. *Before that
+# it was `3B8111B6466415A8`, set after the ring controller's state was hashed
+# whole.* *And before that it was
 # `386D6B4E902E34A1`, set after the 68040 caches began carrying fetches and
 # operands* -- and it moved twice by coverage alone, at the same instructions and
 # clocks: `ap_board_hash_ring` runs for every board, fitted or not, so the four
