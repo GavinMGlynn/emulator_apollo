@@ -474,6 +474,10 @@ typedef struct {
   uint16_t instruction;          /* the word that was decoded */
   ap_m68030_decoded_kind_t kind;
   bool branch_taken;
+  /* The cost came from a published §11.6 row rather than bus time alone --
+   * the step's own decision, so a check of coverage asks the path that
+   * prices rather than a copy of its lookups. */
+  bool priced;
 } ap_m68030_step_result_t;
 
 /* Point the processor at an address, emptying the pipe. */

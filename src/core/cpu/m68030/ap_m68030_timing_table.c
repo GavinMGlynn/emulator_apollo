@@ -984,6 +984,12 @@ ap_m68030_timing_for_movem(uint16_t instruction, uint16_t mask,
   for (uint16_t rest = mask; rest != 0u; rest = (uint16_t)(rest & (rest - 1u))) {
     n++;
   }
+  /* **An empty mask has no row, and that is the page's statement, not a
+   * gap.** Its legend defines n as "Number of Register to Transfer (n>0)" and
+   * both footnote formulas open "For n Registers (n > 0)". An empty `MOVEM`
+   * runs, and keeps the bus time it measured. Pricing it at `8+4n` with n = 0
+   * was tried on 2026-09-15 as "the formula at its smallest argument", and the
+   * page image refuted it before it landed. */
   if (!allowed || n == 0u) {
     return nullptr;
   }
@@ -1493,6 +1499,17 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
           break;
         }
       }
+    }
+    /* `TST An`, `$4A48`-`$4A4F` and `$4A88`-`$4A8F`: the 68020 and 68030 take an
+     * address register for a word or long `TST`, and §11.6.11 prints only
+     * `TST Dn` and `TST Mem` -- in the 1992 printing too. The `MC68020 User's
+     * Manual` §9.2.11 prints one `TST EA` row, footnoted for the address time,
+     * and its address table's register row is `Dn or An` at nothing: a register
+     * operand of either kind costs the operation alone, which is `TST Dn`'s
+     * figure. A byte `TST` of an address register is not an instruction. */
+    if (mode == 0x1u && (instruction & 0xFF00u) == 0x4A00u &&
+        (size_field == 0x1u || size_field == 0x2u)) {
+      return &TABLE[ROW_TST_DN];
     }
     if (mode == 0x0u) {
       if ((instruction & 0xFFB8u) == 0x4880u ||

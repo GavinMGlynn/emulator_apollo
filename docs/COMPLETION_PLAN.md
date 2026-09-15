@@ -4459,67 +4459,19 @@ discipline throughout.
   `[WD7000]` §5.2.4 frees it on the acknowledge. Detail in `PROJECT_STATUS.md`.
   **Next**: the same round trip on the DS5500, which the SCSI item below is
   about; its earlier boot stalled in the same wait loop.
-- [ ] **`[030]` §11.6 is not fully transcribed, and the boot is timed by it.**
-  "Instruction execution time — Closed" is true of the rows transcribed and
-  said nothing of coverage. **Stage 1 landed 2026-09-14**: §11.6.9 and
-  §11.6.13 whole, §11.6.6's single-address rows, and six rows no lookup
-  returned made reachable — 60 → 97 rows. **Stage 2, same day**: §11.6.8's
-  memory-source rows and §11.6.10 whole — whose seven instructions the lookup
-  had been pricing as the arithmetic they share bits with — 97 → 124.
-  **Stage 3**: §11.6.11 and §11.6.12's memory forms, and the step composing
-  §11.6.3's calculate table — 124 → 138.
-  **Stage 4a**: §11.6.5's jump table composed into the step; `JMP`, `JSR`,
-  `LEA`, `PEA`; §11.6.7's word-selected rows; and two decode traps (`CHK` read
-  as `NEGX`/`CLR`, `EXG` as `AND`) — 138 → 158.
-  **Stage 4b**: §11.6.4 composed, and the rows only a run can choose —
-  `MOVEC Rn,Cr`, `MOVES`, the bit fields, `CAS`, `CAS2` — priced from what
-  their executors record — 158 → 190.
-  **Stage 5a**: fault frames written and read in long words, `[030]` §8.4 —
-  the bus fault frames were 16 and 46 zero-word writes plus their fields, now
-  10 and 25; `RTE` reads a fault frame whole. **Next**: 5b §11.6.17's
-  microcode at the exception sites with `STOP`/`TRAPcc`/`TRAPV`; 5c §11.6.18's
-  `RTE` and fault rows; 5d `CHK`/`CHK2`.
-  **Stage 5b**: §11.6.17 whole — 190 → 208 — charged at every exception site,
-  interrupts with their acknowledge read. **Next**: 5c §11.6.18's `RTE` and
-  fault rows; 5d `CHK`/`CHK2`.
-  **Stage 5c**: §11.6.18 whole — 208 → 216 — `RTE` by the frame it unstacks
-  (throwaway on top), bus fault rows at the fault sites. **Next**: 5d
-  `CHK`/`CHK2`, then `MOVEM` and the full-format address rows.
-  **Stage 5d**: `CHK`/`CHK2` by outcome — 216 → 222 — and §11.6.16 whole.
-  **Next**: `MOVEM`, then the full-format address rows and §11.6.6's mode-6
-  destinations.
-  **Stage 5e**: `MOVEM` built for the registers it moved; §11.6.7 whole.
-  **Next**: the long multiplies and divides by extension word, §11.6.6's
-  mode-6 destinations and the full-format address rows.
-  **Stage 5f**: §11.6.8 whole — `CMP2` and the long multiplies and divides by
-  extension word, 222 → 227, every row reachable — and a 5d defect fixed:
-  `execute_bounds` never left its extension word, so no in-bounds `CHK2` was
-  priced. **Next**: §11.6.6's mode-6 destinations and the full-format address
-  rows, which both need the step to read mode 6's extension format; and the
-  address rows' own no-cache difference, which the prefetch exposure omits.
-  **Stage 6**: mode 6 by its extension word — §11.6.6's brief and full-format
-  destinations, 227 → 244, and §11.6.1/§11.6.3's full-format rows composed.
-  **Next**: §11.6.2's, §11.6.4's and §11.6.5's full-format rows; the address
-  rows' own no-cache difference in the prefetch exposure.
-  **Stage 7**: the full-format rows of §11.6.2, §11.6.4 and §11.6.5, every
-  address now priced by its own row. **Next**: the address rows' own no-cache
-  difference in the prefetch exposure, the last owed part of §11.6.
-  **Stage 8**: the prefetch exposure by the composed instruction's no-cache
-  difference and the run's own length, `ODD_WORDS` charged on the run with
-  fewer fetches — §11.3.3's Figures 11-4/11-5, whose four per-instruction
-  figures now come out on a running machine. **Next**: §11.6.12's `LSd Dx,Dy`
-  and `ASR Dx,Dy`, found unpriced; stage 7's "last owed part" had missed them.
-  **Stage 9**: §11.6.12's register-count `LSd`/`ASR`, two rows apiece chosen by
-  the count, 244 → 248; and a scan of every executable word against every
-  lookup, which leaves 53 unpriced. **Next**: `NBCD Mem` (37 words), which
-  neither §11.6.11 nor the 68020's §9.2.11 prints, and `TST An` (16), which the
-  68020 prints as one `TST EA` row; the scan made a test.
-  **Owed**: `NBCD Mem` and `TST An`.
-  *(Before stage 4b this also named
-  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17; before 5c, §11.6.18; before 5d, `CHK`/`CHK2`; before 5e, `MOVEM`; before 5f, the long multiplies and divides; before 6, §11.6.6's mode-6 destinations; before 7, the full-format rows of §11.6.2, §11.6.4 and §11.6.5; before 8, the address rows' own no-cache difference in the prefetch exposure; before 9, §11.6.12's `LSd Dx,Dy` and `ASR Dx,Dy`.)*
-  *(Before stage 4a this list also named §11.6.7, §11.6.16's rest and "the
-  §11.6.4 (calculate immediate) and §11.6.5 (jump) tables, which do not exist
-  in the code".)*
+- [x] **`[030]` §11.6 transcribed whole and priced by the step — closed
+  2026-09-15.** 60 → 248 rows over ten stages: §11.6.1–§11.6.18 whole, the five
+  address tables with their full-format rows composed through Equation (11-2),
+  the rows a run chooses (extension word, outcome, frame, vector, `MOVEM` mask,
+  shift count) priced from what the executors record, and the prefetch exposure
+  by the composed no-cache difference and the run's length, which reproduces
+  §11.3.3's Figures 11-4/11-5 per instruction. `NBCD Mem` is closed as
+  documentation absent (1990 and 1992 printings, the 68020's §9.2.11, the web)
+  at its measured bus time, `PROVISIONAL`; `TST An` is the 68020's `TST EA`.
+  `PROVISIONAL` readings: the full-format group A/B mapping, the `+` maxima,
+  `MOVEM`'s wait states. *Verification: `machine_suite` steps all 65,536 words
+  and finds every executed one priced but `NBCD Mem`; identity `10939EC419EE287D`.*
+  Detail in `PROJECT_STATUS.md`.
 
 *Paused 2026-09-13, kept as the record of what the next step was then:*
 

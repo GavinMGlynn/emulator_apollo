@@ -3334,6 +3334,61 @@ static void test_the_alignment_example_costs_its_figures_per_instruction(void) {
   }
 }
 
+/* **Every executable word is priced, but the one form no printing carries.**
+ * All 65,536 words, each stepped once on a fresh machine with `$0001` in the
+ * words after it, and every one that executed must have been priced by the step
+ * itself
+ * -- which reports it -- except `NBCD` through a memory address: §11.6.11 does
+ * not print it in the 1990 or the 1992 printing, nor does the `MC68020 User's
+ * Manual` §9.2.11, so it keeps its measured bus time. Coprocessor and A-line
+ * words are not §11.6's. The extension words name one register, because a
+ * `MOVEM` with an empty mask has no row by the page's own legend, "(n>0)";
+ * `timing_table_suite` holds that separately.
+ *
+ * Asked of the step and not of a copy of its lookups, because a copy is what
+ * missed it: stage 7 called the §11.6 work's last item the last, stage 8 found
+ * §11.6.12's register-count shifts, and a scan found `NBCD Mem` and `TST An`
+ * after that. */
+static void test_every_executable_word_is_priced_but_nbcd_through_memory(void) {
+  unsigned unpriced = 0;
+  unsigned nbcd = 0;
+  for (uint32_t word = 0; word <= 0xFFFFu; word++) {
+    const ap_m68030_decoded_t decoded = ap_m68030_decode((uint16_t)word);
+    if (decoded.kind == AP_M68030_DECODED_COPROC ||
+        decoded.kind == AP_M68030_DECODED_LINE_A ||
+        decoded.kind == AP_M68030_DECODED_ILLEGAL) {
+      continue;
+    }
+    memset(ram, 0, sizeof ram);
+    ap_machine_t m;
+    ap_machine_init(&m, ram, RAM_BYTES);
+    ap_machine_reset(&m, PROGRAM, STACK);
+    TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM, 2u, (uint16_t)word));
+    TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 2u, 2u, 0x0001u));
+    TEST_ASSERT_TRUE(ap_machine_write(&m, PROGRAM + 4u, 2u, 0x0001u));
+    m.cpu.regs.a[0] = 0x00004000u;
+    m.cpu.regs.a[1] = 0x00004000u;
+
+    const ap_m68030_step_result_t step = ap_machine_step(&m);
+    if (step.status != AP_M68030_STEP_EXECUTED || step.priced) {
+      continue;
+    }
+    if ((word & 0xFFC0u) == 0x4800u && ((word >> 3) & 7u) >= 2u) {
+      nbcd++;
+      continue;
+    }
+    if (unpriced < 8u) {
+      printf("unpriced %04X\n", (unsigned)word);
+    }
+    unpriced++;
+  }
+  TEST_ASSERT_EQUAL_UINT(0u, unpriced);
+  /* Thirty-seven `NBCD` memory forms run on blank extension words; with the
+   * mask word, `NBCD $00010001` (`$4839`) reads past this fixture's RAM and
+   * faults instead, leaving thirty-six. */
+  TEST_ASSERT_EQUAL_UINT(36u, nbcd);
+}
+
 int main(void) {
   UNITY_BEGIN();
   RUN_TEST(test_the_interval_timer_agrees_with_the_machines_own_clock);
@@ -3414,5 +3469,6 @@ int main(void) {
   RUN_TEST(test_cpu_space_for_another_coprocessor_is_not_the_68882);
   RUN_TEST(test_chk2_and_cmp2_come_to_their_composed_no_cache_case_cold);
   RUN_TEST(test_the_alignment_example_costs_its_figures_per_instruction);
+  RUN_TEST(test_every_executable_word_is_priced_but_nbcd_through_memory);
   return UNITY_END();
 }

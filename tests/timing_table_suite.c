@@ -607,6 +607,8 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       {0x4250u, "CLR Mem", "CLR.W (A0)"},
       {0x4410u, "NEG Mem", "NEG.B (A0)"},
       {0x4A90u, "TST Mem", "TST.L (A0)"},
+      {0x4A48u, "TST Dn", "TST.W A0 -- the 68020's one TST EA row"},
+      {0x4A08u, nullptr, "TST.B A0 is not an instruction"},
       {0x4AD0u, "TAS Mem", "TAS (A0)"},
       {0x4AFCu, nullptr, "ILLEGAL, inside TAS's group"},
       {0x57D0u, "Scc Mem", "SEQ (A0)"},
@@ -818,7 +820,9 @@ static void test_movem_is_priced_by_the_registers_it_moves(void) {
   TEST_ASSERT_EQUAL_UINT(2u, out->timing.writes);
   TEST_ASSERT_TRUE(ap_m68030_timing_consistent(&out->timing));
 
+  /* An empty mask: the page's n is "Number of Register to Transfer (n>0)". */
   TEST_ASSERT_NULL(ap_m68030_timing_for_movem(0x4CD0u, 0x0000u, &storage));
+  TEST_ASSERT_NULL(ap_m68030_timing_for_movem(0x48D0u, 0x0000u, &storage));
   TEST_ASSERT_NULL(ap_m68030_timing_for_movem(0x4880u, 0x00FFu, &storage)); /* EXT.W D0 */
   TEST_ASSERT_NULL(ap_m68030_timing_for_movem(0x48D8u, 0x00FFu, &storage)); /* to (A0)+ */
   TEST_ASSERT_NULL(ap_m68030_timing_for_movem(0x4CE0u, 0x00FFu, &storage)); /* from -(A0) */

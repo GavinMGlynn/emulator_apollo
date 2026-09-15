@@ -8219,6 +8219,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       (published->effective_address_time == AP_M68030_EA_TIME_NONE ||
        ea_timing != nullptr);
 
+  out.priced = priceable;
   if (priceable) {
     /* The published cache case, composed if it has two components, then split
      * into the microcode and the operand bus cycles it contains. §11.6 states
