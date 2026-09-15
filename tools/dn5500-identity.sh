@@ -25,12 +25,16 @@
 #
 # ## The reference
 #
-#     executed     8592258 instruction(s)
-#     state hash   C3F77989268973A3
-#     final PC     00002918 (boot PROM)
-#     clocks       27923652
+#     executed     4456406 instruction(s)
+#     state hash   386D6B4E902E34A1
+#     final PC     00002926 (boot PROM)
+#     clocks       27925641
 #
-# Reproduced across two runs on 2026-09-12. Report the pair the DN3500 harness
+# As of 2026-09-15, after the 68040 caches began carrying fetches and operands.
+# *It was `C3F77989268973A3` at 8,592,258 instructions, reproduced across two
+# runs on 2026-09-12* -- and stale from 2026-09-14, when §11.6 stage 1 priced
+# the PROM's poll loop and halved the count in the same clocks, because nothing
+# re-ran this after a timing change. Run it after every one. Report the pair the DN3500 harness
 # reports: `executed` and `final PC` say the machine ran the same program, and
 # the hash alone moving means state was added rather than behaviour changed.
 #

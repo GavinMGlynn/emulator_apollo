@@ -413,12 +413,10 @@ typedef struct {
    *
    * Attached 2026-09-13, closing the gap the CINV/CPUSH comment named: the
    * module was complete and reachable by nobody, so an invalidation had
-   * nothing to invalidate. **They are state and maintenance only** -- a fetch
-   * or an operand does not yet look in them, which is the remaining half and
-   * is named in `docs/PROJECT_STATUS.md` with its reason: the caches are
-   * *physically* tagged, so a fill needs the MMU's output at every access, and
-   * that is a change to this file's access paths whose check is a DS5500 boot
-   * rather than an assertion.
+   * nothing to invalidate. Fetches and operands have gone through them since
+   * 2026-09-15, by the access context's `cache_040` (`ap_m68030_access.h`).
+   * *Until then this read "They are state and maintenance only -- a fetch or
+   * an operand does not yet look in them".*
    *
    * `[040]` §4.1 again, and it is a reset trap: "both caches should be
    * explicitly cleared after a hardware reset of the processor since reset

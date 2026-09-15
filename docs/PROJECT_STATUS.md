@@ -1272,6 +1272,97 @@ since 2026-09-14; corrected.
 `scsi-software-*.script` runs produced; `ctest` 152/152. No core change beyond
 the help string.*
 
+## The 68040's caches carry the DS5500's fetches and operands, and `CPUSH` writes back (2026-09-15)
+
+**The defect was live.** Domain/OS on a DS5500 sets `CACR` to `80008000` -- both
+caches on, read off the end-of-run report's new `cacr` line -- and every fetch
+and operand still went through the 68030's logically tagged cache model,
+answering before the MMU by 68030 rules. `CINV` and `CPUSH`, live since
+2026-09-13, flushed the 68040's own caches, which nothing read.
+
+**The fill, from `[040]` §4 read as page images, pp. 4-3 to 4-14.**
+`ap_m68030_access.c` takes a 68040 path wherever the context carries
+`cache_040`, which only a part with `has_cache_maintenance` does:
+
+- translate first, then look the line up by **physical** address (Figure 4-3);
+- a hit is served with no bus cycle (§4.4.3);
+- a miss fills the whole line from the requested entry, wrapping (§4.6.1), in
+  the burst-inhibited form at §7.4.2's eight clocks, the replaced line going to
+  the push buffer and restored or not by p. 4-12's rules;
+- write-through writes memory, updates a resident line and never allocates
+  (§4.3.1.1); copyback updates the line and sets D with no bus cycle, a miss
+  reading the line first (§4.4.2, §4.4.4);
+- a cache-inhibited or locked access pushes or invalidates a resident line
+  before its own cycle (§4.3.2, p. 4-13);
+- exception stacking and vector fetches do not allocate (§4.3.3), and neither
+  do table searches, which read descriptors *through* the data cache, while a
+  table update pushes a line it hits first;
+- `ap_machine_write` invalidates the 68040 caches as it does the 68030's.
+
+**A regression the documents would have prevented.** The first DS5500 boot on
+the fill crashed as its kernel started, `0:BUS ERROR` with a `7008` frame. Two
+hypotheses followed -- a DMA invalidation hook that turned out never to have
+existed, and table searches reading stale memory, a real §4.3.3 gap fixed then
+but not the crash -- and a bisect: the instruction side alone booted, the data
+side alone crashed, and bypassing data writes or treating copyback as
+write-through both booted. **The cause was `CPUSH`.** `ap_m68040_cache_push_*`
+report what is dirty and leave the bus writes to the caller, and the
+2026-09-13 handler never made them, so `CPUSH` discarded dirty data exactly as
+`CINV` does -- invisible while no line could be dirty. §4.6.2 and the `CPUSH`
+page state the write-back outright; walking the handler against them would
+have found it with no boot at all. `ap_m68030_access_push_dirty_040` now writes
+each dirty line in scope before it is invalidated -- a long-word push for one
+dirty long word, a line push for more -- charged at Table 10-4's best case plus
+the pushes' bus time, and a bus error takes the access-error exception.
+
+**The board's straps, from the documents and then the web.** No Apollo document
+gives SC1/SC0 or TBI: `019411-A00`, walked whole as images, has neither, and
+`007861-A01` is not scanned. Motorola's reference for a 68040 on a 68030-era
+board, `[040DH]` §7, uses burst-inhibited line transfers -- "a line transfer is
+broken down into four separate long-word bus cycles" (§7.1.2) -- and its Figure
+7-3 ties SC(1:0) off, which Table 4-1 reads as snoop inhibited either way. The
+core models both so, `PROVISIONAL` for Apollo's board. The web adds nothing
+attributable: the one DN5500 sentence on Wikipedia carries no source.
+
+**Not modelled, and why.** `MOVE16`'s §4.3.3 rule has no instruction to attach
+to: the step has no `MOVE16`. And §4.3.3's "If the data cache is re-enabled
+after a locked access has hit and the data cache was disabled, the next
+non-locked access that results in a data cache miss will not be cached" does not
+say whether "disabled" is `CACR` or the lock's own effect, so it is recorded
+verbatim and `PROVISIONAL` rather than implemented on a reading.
+
+*Verification: `ctest` 153/153. `m68040_cache_access_suite`, 17 tests: wiring,
+fill cost and hits, coherency until invalidated, a disabled cache untouched,
+write-through, copyback, the replacement push, the inhibited push, an exception
+frame reaching memory under copyback, the locked bypass, a first-cycle fault
+against a later abort, an instruction fill, an operator write, a table search
+through the data cache, a table update's push, `CPUSHA` against `CINVA`, and a
+line-scoped `CPUSH`. On a running DS5500 with `cacr 80008000`: Domain/OS to
+`lcnode`, and the SCSI round trip again -- `Write complete.`, `Index complete.`,
+102 commands, 11 check conditions, no DMA cycle refused. DN3500 identity unmoved
+at `7048E8ED74D015CF`, the path being NULL on every 68030 model.*
+
+**The DS5500 identity reference had been stale since 2026-09-14, and nothing
+said so.** `tools/dn5500-identity.sh` exists to be run on every 68040 change and
+was not run after any of today's. Its recorded `C3F77989268973A3` at 8,592,258
+instructions was measured against commits, not assumed:
+
+| Commit | executed | final PC | clocks | state hash |
+| --- | --- | --- | --- | --- |
+| `06f69e0f`, before §11.6 stage 1 | 8,592,258 | `2918` | 27,923,652 | `0B5FB34F4D9B222B` |
+| `1ae61e23`, §11.6 stage 1 | **4,462,240** | `2918` | 27,925,065 | `E76CD70944EAA315` |
+| `66781ad9`, HEAD before this work | 4,459,150 | `2926` | 27,925,310 | `F8B5F5AEB31EFEF4` |
+| this work | **4,456,406** | `2926` | 27,925,641 | **`386D6B4E902E34A1`** |
+
+**§11.6 stage 1 halved the count, and that is the pricing working.** It gave rows
+to instructions that had cost bus time alone; the PROM waits a fixed emulated
+time for its console, so its polling loop runs half as many times in the same
+clocks. The final PC moving from `2918` to `2926` is the other instruction of the
+same `BTST`/`BEQ` poll. `06f69e0f`'s hash differing from the recorded one with
+the behaviour identical is state added, not behaviour. **This work's own effect
+is 2,744 instructions and 331 clocks**, the eight-clock line fills and free hits
+in the PROM's path. The new reference is `386D6B4E902E34A1`.
+
 
 ## The EXB-8200 belongs at SCSI ID 1: 8 mm drives are IDs 1-4 (2026-09-14)
 
@@ -1794,6 +1885,13 @@ fill needs the MMU's output at every access — and this core's access paths run
 through `ap_m68030_step.c`'s 6,966 lines rather than one choke point. That is a
 change whose check is a DS5500 boot, not an assertion, and it is named as the
 sub-item's second half rather than folded into this one.
+
+*Closed 2026-09-15: there was one choke point after all,
+`ap_m68030_access_read_sized` and `ap_m68030_access_write`, and fetches and
+operands now go through the caches -- see "The 68040's caches carry the DS5500's
+fetches and operands". And the bullet above, that `CPUSH` "reports what each
+dirty line owes memory", was true of the report and false of memory: nothing
+wrote it back until the same date.*
 
 **The four errata are recorded and the decision made.** `[RN104]` §4.12 lists
 four MC68040 defects Apollo shipped software around: `MOVE16` needing a
@@ -3191,6 +3289,10 @@ clocks       27923652
 Reproduced across two runs. Report `executed` and `final PC` beside the hash,
 as the DN3500 harness does: together they distinguish state being added from
 behaviour changing.
+
+*Superseded 2026-09-15 by `386D6B4E902E34A1` at 4,456,406 instructions: §11.6
+stage 1 halved the count on 2026-09-14 and nothing re-ran this tool. See "The
+68040's caches carry the DS5500's fetches and operands".*
 
 **What it covers**: the boot PROM's path on a 68040 — the I/O protection map,
 the transparent translation registers, the caches, and the MMU the PROM programs

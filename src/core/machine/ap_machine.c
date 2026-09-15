@@ -779,6 +779,17 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
     machine->data_access.table_update_040 = machine_table_update_040;
   }
 
+  /* **The 68040's caches on its fetches and operands**, where until
+   * 2026-09-15 they held lines nothing read. On a part that has them the
+   * access path uses them in place of the 68030's logically tagged model: see
+   * `cache_040`. */
+  if (machine->cpu.has_cache_maintenance) {
+    machine->instruction_access.cache_040 = &machine->cpu.icache;
+    machine->data_access.cache_040 = &machine->cpu.dcache;
+    machine->instruction_access.table_cache_040 = &machine->cpu.dcache;
+    machine->data_access.table_cache_040 = &machine->cpu.dcache;
+  }
+
   /* Installed unconditionally, like the wait-state callback and for the same
    * reason: one construction path. It is only ever consulted when a level is
    * standing, and only a board can raise one. */
@@ -851,6 +862,11 @@ bool ap_machine_write(ap_machine_t *machine, uint32_t address, unsigned size,
    * reporting the new one. */
   ap_m68030_cache_clear(&machine->instruction_cache);
   ap_m68030_cache_clear(&machine->data_cache);
+  /* And the 68040's, for the same reason, now that its fetches read them. */
+  if (machine->cpu.has_cache_maintenance) {
+    ap_m68040_cache_invalidate_all(&machine->cpu.icache);
+    ap_m68040_cache_invalidate_all(&machine->cpu.dcache);
+  }
   return true;
 }
 

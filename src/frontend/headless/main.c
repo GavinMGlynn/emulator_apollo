@@ -3098,6 +3098,13 @@ static void report_state(ap_machine_t *machine) {
      * these and a non-zero `mmusr` is reporting a register nothing wrote. */
     printf("               mmu tests %llu PTEST(s)\n",
            (unsigned long long)machine->cpu.mmu_test_operations);
+    /* `CACR` as the 68040 packs it, DE bit 31 and IE bit 15 (`[040]` Figure
+     * 4-4). Printed because whether the guest turned the caches on decides
+     * which cache its fetches and operands went through, and no line of this
+     * report said. */
+    printf("               cacr %08X\n",
+           ap_m68030_cacr_pack_variant(&machine->cpu.cacr,
+                                       AP_M68030_CACR_VARIANT_68040));
   }
     /* **What the model declares against what the machine translates with**, and
      * it is printed on every run because the two do not always agree.

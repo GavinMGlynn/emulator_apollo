@@ -38,6 +38,7 @@
 
 #include "cpu/m68030/ap_m68030_atc.h"
 #include "cpu/m68040/ap_m68040_mmu.h"
+#include "cpu/m68040/ap_m68040_cache.h"
 #include "cpu/m68030/ap_m68030_cache.h"
 #include "cpu/m68030/ap_m68030_tt.h"
 #include "cpu/m68030/ap_m68030_walk.h"
@@ -141,6 +142,33 @@ typedef struct {
    * 68040's MMU was built and none of it was joined, and Domain/OS's DS5500
    * loader is what asked for the join. */
   const ap_m68040_mmu_t *mmu_040;
+
+  /* The 68040's own cache for this side, on a part that has one, and NULL on
+   * every other part -- which keeps the 68030 path below, and every 68030
+   * model's state hash, untouched by it.
+   *
+   * When set, `cache` above is never consulted: `[040]` Figure 4-2 tags a line
+   * with "22-Bit Physical Address Tag", so a 68040 lookup needs the MMU's answer
+   * first, where the 68030's logical cache answers before the MMU. Until
+   * 2026-09-15 a DS5500 -- whose Domain/OS sets `CACR` to `80008000` -- fetched
+   * through the 68030's model, and `CINV`/`CPUSH` flushed caches nothing read. */
+  ap_m68040_cache_t *cache_040;
+
+  /* `[040]` §4.3.3's special accesses: "Exception stack accesses, exception
+   * vector fetches, and table searches that miss in the cache do not allocate
+   * cache lines in the data cache ... Cache hits by these accesses are handled
+   * in the normal manner." Set by the caller around the access; table searches
+   * already bypass this path. Meaningful only with `cache_040`. */
+  bool no_allocate;
+
+  /* The cache a 68040 table search reads descriptors through, and whether it is
+   * enabled -- `CACR`'s DE, on *both* contexts, because §4.3.3's table searches
+   * "that miss in the cache do not allocate cache lines in the data cache" and
+   * their hits "are handled in the normal manner". So a descriptor written
+   * into a copyback page is what the MMU reads before it reaches memory. NULL
+   * on every part without one. */
+  ap_m68040_cache_t *table_cache_040;
+  bool table_cache_enabled;
   const ap_m68030_tt_t *tt0; /* either may be NULL: that register is absent */
   const ap_m68030_tt_t *tt1;
   const ap_m68030_tc_t *tc;
@@ -366,5 +394,36 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
 [[nodiscard]] ap_m68030_access_result_t
 ap_m68030_access_write(ap_m68030_access_ctx_t *access, uint32_t logical,
                        uint8_t function_code, uint32_t value, unsigned size);
+
+/* A 68040 table search's descriptor fetch and history-bit update, through the
+ * data cache (`[040]` §4.3.3, p. 4-13). `context` is the access context.
+ *
+ * The fetch answers from a resident line, valid or dirty, and otherwise reads
+ * memory without allocating. The update is a locked access -- "translation table
+ * updates" assert `LOCK`, and a locked access is cache-inhibited -- so a line
+ * it hits is pushed if dirty and invalidated before memory is written, and the
+ * history bits land on the descriptor the cache held. Until 2026-09-15 a
+ * search went to memory alone, which was harmless while every data write went
+ * through to memory too, and stopped being so the day copyback did not. */
+[[nodiscard]] bool ap_m68030_access_table_fetch_040(void *context,
+                                                    uint32_t address,
+                                                    uint32_t *value);
+[[nodiscard]] bool ap_m68030_access_table_update_040(void *context,
+                                                     uint32_t address,
+                                                     bool set_used,
+                                                     bool set_modified,
+                                                     bool locked);
+
+/* `CPUSH`'s write-back, `[040]` §4.6.2: every dirty line of `cache` in `scope`
+ * -- 1 the line holding `address`, 2 the page holding it (`page_bytes`), 3 all
+ * -- written to memory before the caller invalidates it. A single dirty long
+ * word goes as a long-word push and two or more as a line push. `*lines` counts
+ * lines written and `*clocks` accumulates their bus time. False on a bus error,
+ * which "terminates a push transfer, the processor immediately takes an
+ * exception": `*failed_address` and `*failed_value` then name the cycle. */
+[[nodiscard]] bool ap_m68030_access_push_dirty_040(
+    const ap_m68030_access_ctx_t *access, ap_m68040_cache_t *cache,
+    unsigned scope, uint32_t address, uint32_t page_bytes, unsigned *lines,
+    uint32_t *clocks, uint32_t *failed_address, uint32_t *failed_value);
 
 #endif /* APOLLO_CPU_M68030_AP_M68030_ACCESS_H */

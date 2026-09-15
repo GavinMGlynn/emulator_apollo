@@ -149,6 +149,11 @@ void ap_m68030_cacr_publish(ap_m68030_cpu_t *cpu) {
     cpu->data->cache_frozen = cpu->cacr.freeze_data;
     cpu->data->burst_enabled = cpu->cacr.data_burst_enable;
     cpu->data->write_allocate = cpu->cacr.write_allocate;
+    cpu->data->table_cache_enabled = cpu->cacr.enable_data;
+  }
+  if (cpu->fetch.access != nullptr) {
+    /* A table search reads the *data* cache whichever side translated. */
+    cpu->fetch.access->table_cache_enabled = cpu->cacr.enable_data;
   }
 }
 
@@ -2697,8 +2702,16 @@ static bool execute_extended(ap_m68030_cpu_t *cpu,
 static bool write_frame_field(ap_m68030_cpu_t *cpu, uint32_t address,
                               unsigned size, uint32_t value, uint32_t *clocks) {
   const ap_m68030_address_t where = {.address = address, .valid = true};
+  /* `[040]` §4.3.3: "Exception stack accesses ... that miss in the cache do not
+   * allocate cache lines in the data cache". Ignored by every other part. */
+  if (cpu->data != nullptr) {
+    cpu->data->no_allocate = true;
+  }
   const ap_m68030_operand_result_t wrote = step_operand_write(
       cpu, &cpu->regs, cpu->data, &where, size, value, AP_M68030_FC_SUPERVISOR_DATA);
+  if (cpu->data != nullptr) {
+    cpu->data->no_allocate = false;
+  }
   *clocks += wrote.clocks;
   return wrote.ok;
 }
@@ -2935,9 +2948,16 @@ static ap_m68030_exception_result_t take_exception_with(
   out.vector_address = cpu->regs.vbr + ap_m68030_vector_offset(vector);
   const ap_m68030_address_t vector_where = {.address = out.vector_address,
                                             .valid = true};
+  /* "... exception vector fetches ... do not allocate cache lines" (§4.3.3). */
+  if (cpu->data != nullptr) {
+    cpu->data->no_allocate = true;
+  }
   const ap_m68030_operand_result_t handler =
       step_operand_read(cpu, &cpu->regs, cpu->data, &vector_where, 4u,
                              AP_M68030_FC_SUPERVISOR_DATA);
+  if (cpu->data != nullptr) {
+    cpu->data->no_allocate = false;
+  }
   out.clocks += handler.clocks;
   if (!handler.ok) {
     return out;
@@ -7056,13 +7076,11 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * PC never moved -- the DN5500 executed `F4D8` three thousand times without
    * leaving `00060E`, which is what a step that forgets the tail looks like.
    *
-   * **The named gap**: the invalidation has nothing to act on. This core's
-   * 68040 caches (`ap_m68040_cache.*`) are a complete module attached to no
-   * CPU, so there are no lines to invalidate and no dirty data to push -- which
-   * makes a no-op the *correct* effect rather than a convenient one, and
-   * attaching them is the 68040 core item this is an increment of. What is
-   * modelled is what the instruction decides: privilege, the illegal scope, and
-   * the cost. */
+   * The caches are attached (2026-09-13) and fetches and operands go through
+   * them (2026-09-15), so both instructions act on live lines, and `CPUSH`
+   * writes dirty data back before invalidating -- see the push below. *Until
+   * 2026-09-15 this read: "The named gap: the invalidation has nothing to act
+   * on ... there are no lines to invalidate and no dirty data to push".* */
   const bool cache_maintenance =
       cpu->has_cache_maintenance && (word & 0xFF00u) == 0xF400u;
   if (cache_maintenance) {
@@ -7098,6 +7116,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
       const uint32_t page_bytes = 1u << mmu_page_size_bits(cpu);
       unsigned invalidated = 0u;
       unsigned pushed = 0u;
+      uint32_t push_clocks = 0u;
       for (unsigned pass = 0; pass < 2u; pass++) {
         const bool data = pass == 0u;
         if ((which & (data ? 1u : 2u)) == 0u) {
@@ -7106,6 +7125,37 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
         ap_m68040_cache_t *cache = data ? &cpu->dcache : &cpu->icache;
         unsigned dirty = 0u;
         if (push) {
+          /* **The write-back, before the invalidation**, `[040]` §4.6.2: a
+           * dirty line is written to memory -- one dirty long word as a
+           * long-word push, two or more as a line push -- and "if a bus error
+           * occurs in any cycle in the line push transfer, the processor
+           * immediately takes an exception". The module below only reports
+           * what was dirty; the bus writes are this caller's, and until
+           * 2026-09-15 nobody made them, so `CPUSH` lost dirty data exactly as
+           * `CINV` does. Invisible while no line could be dirty, and a crash
+           * the day copyback wrote into lines: Domain/OS on a DS5500 faulted as
+           * its kernel started. */
+          unsigned written = 0u;
+          uint32_t failed_address = 0u;
+          uint32_t failed_value = 0u;
+          if (data && cpu->data != nullptr &&
+              !ap_m68030_access_push_dirty_040(cpu->data, cache, scope, address,
+                                               page_bytes, &written,
+                                               &push_clocks, &failed_address,
+                                               &failed_value)) {
+            cpu->access_faulted = true;
+            cpu->fault_instruction_stream = false;
+            cpu->fault_address = failed_address;
+            cpu->fault_size = 4u;
+            cpu->fault_read = false;
+            cpu->fault_function_code = AP_M68030_FC_SUPERVISOR_DATA;
+            cpu->fault_data_output = failed_value;
+            cpu->fault_translation = false;
+            out.clocks += push_clocks;
+            out.status = fault_or_unimplemented(cpu, &out, instruction_address);
+            ap_m68030_charge(cpu, out.clocks);
+            return out;
+          }
           /* "Pushes (writes) the cache line to memory if it is dirty and then
            * invalidates the line." The instruction cache has no dirty state,
            * so a push there degenerates to an invalidate -- which is what the
@@ -7160,6 +7210,9 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * "best + lines written back", and there are none. Naming the best case
        * rather than passing zero to a worst-case function is the difference
        * between a figure and an argument for it. */
+      /* Table 10-4's worst case is "best + lines written back"; what a push
+       * actually wrote back is charged at the bus time it took. */
+      out.clocks += push_clocks;
       out.clocks += push ? ap_m68040_cpush_best_case(
                                scope == 1u ? AP_M68040_CPUSH_LINE
                                            : AP_M68040_CPUSH_PAGE_OR_ALL)
@@ -7321,8 +7374,16 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
                                            : cpu->regs.a[reg];
         const ap_m68040_ptest_result_t tested = ap_m68040_ptest(
             side->mmu_040, address, function_code,
-            !ap_m68040_ptest_is_read(word), side->table_fetch_040,
-            side->table_update_040, side->context);
+            !ap_m68040_ptest_is_read(word),
+            /* `PTEST` is a table search, and reads through the data cache
+             * as a translation's does (`[040]` §4.3.3). */
+            side->table_cache_040 != nullptr ? ap_m68030_access_table_fetch_040
+                                             : side->table_fetch_040,
+            side->table_cache_040 != nullptr && side->table_update_040 != nullptr
+                ? ap_m68030_access_table_update_040
+                : side->table_update_040,
+            side->table_cache_040 != nullptr ? (void *)(uintptr_t)side
+                                             : side->context);
         if (tested.defined) {
           cpu->mmusr_040 = ap_m68040_mmusr_encode(&tested.mmusr);
         }
