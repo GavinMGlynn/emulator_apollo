@@ -384,7 +384,7 @@ static void print_usage(const char *program_name) {
           "                        addition: both decode ISA 200 and a real\n"
           "                        machine cannot carry the two together\n"
           "  --scsi-drive          put an EXABYTE EXB-8200 on the SCSI bus at\n"
-          "                        ID 0, with no cartridge in it\n"
+          "                        ID 1, m0 to Domain/OS, with no cartridge in it\n"
           "  --scsi-tape FILE      the same, with FILE loaded. A SIMH magtape\n"
           "                        image (.tap), which SIMH, E11 and MAME also\n"
           "                        read and write\n"

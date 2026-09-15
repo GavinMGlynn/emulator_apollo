@@ -1,0 +1,25 @@
+# Run 3 of 3: the SCSI magtape manager, /sys/mgrs/rmt_scsi, from 019594-004
+# file 3, onto the volume run 2 wrote back. It is object 458 of 680 in that
+# file, 28.4 MB in, so this run reads for ~12 G instructions: bound it well past.
+expect MD14
+expect >
+send DI W\r
+expect >
+send EX DOMAIN_OS\r
+expect )
+send SH\r
+expect login:
+send user\r
+expect Password
+send \r
+expect $
+send /install/tools/rbak_sr10 -dev ct -f 3 install/ri.apollo.os.v.10.4/sys/mgrs/rmt_scsi -as /sys/mgrs/rmt_scsi\r
+expect Restore complete
+send ld /sys/mgrs\r
+expect $
+send \x04
+expect Returned status
+expect : ok
+expect )
+send shut\r
+expect Shutdown successful

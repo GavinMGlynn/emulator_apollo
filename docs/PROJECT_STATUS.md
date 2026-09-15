@@ -573,6 +573,10 @@ the four `019594` cartridges), which `tools/dn5500/README.md` specifies from
 stand in, since a DS5500 page is four sectors and a DN3500 volume cannot be
 patched into one.
 
+*Closed 2026-09-15, not by MINST: four objects restored by name with the
+volume's own `rbak_sr10`, then the round trip. See "The DS5500 SCSI round trip
+works".*
+
 
 ## §11.6 stage 3: the single-operand and shift memory forms, and the calculate table (2026-09-14)
 
@@ -1221,6 +1225,52 @@ B as `DM | 24HOUR` and the hour as 12, and at 21:09 as 21.
 that mode. Identity `10939EC419EE287D` → **`7048E8ED74D015CF`**, clocks
 1,834,623,621 and final PC `2EE6` unchanged: register B is hashed, and the
 boot's window reads no hour.*
+
+## The DS5500 SCSI round trip works (2026-09-15)
+
+**Domain/OS on a DS5500 wrote a labelled backup to the EXB-8200 and read it
+back**, the integration check the SCSI item was scheduled to end with and the
+DN3500 passed on 2026-09-14:
+
+    $ ld /sau14/scsi14.drvr /com/wbak /com/rbak /sys/mgrs/rmt_scsi
+    4 entries listed.
+    $ wbak -dev m0 -f 1 -vid SCSI01 -fid scsitest /com/lcnode
+    ...
+    Write complete.
+    $ rbak -dev m0 -rewind
+    $ rbak -dev m0 -f 1 -index -all
+    ...
+    (file) /com/lcnode
+    Index complete.
+
+The report agrees with the DN3500's to the command: **102 started, 102
+selections, 0 timed out, 11 check conditions**, 64 mailboxes each way, 20,468
+DMA reads and 18,720 writes with none refused.
+
+**The software, not the SCSI work, was the gate, and four objects were the
+whole of it.** The restored volume lacked `/sau14/scsi14.drvr`, `/com/wbak`,
+`/com/rbak` and `/sys/mgrs/rmt_scsi`. The plan's route was a MINST pass across
+four cartridges; the volume already carries `/install/tools/rbak_sr10`, and
+`rbak`'s own help restores by name, `{-pn|-all} [-as disk_pn]`.
+`tools/ct_extract.py --list` placed the objects: `019594-002` file 3
+(`/base_unix_sau14`), 10 (`/base_unix_systes`) and 12 (`/base_unix_usr`, where
+`rbak` is `usr/apollo/bin/rbak`), and `019594-004` file 3 (`/base_sys`).
+Three runs, one cartridge's worth each, chained through `--disk-writeback`,
+each ending EOT then `shut` (`FINDINGS.md` C196): 4.9 G, 6.0 G and 12.3 G
+instructions. The last is long because `rmt_scsi` is object 458 of 680, 28.4 MB
+into its file. **Every object is byte-identical to its tape copy**, read back
+off the written volume with `tools/awd_read.py`: 22,508, 82,328, 82,736 and
+33,106 bytes, the rest of each last block zero.
+
+**Found on the way**: the calendar's 24-hour defect, from these runs' volume
+stamps (the section above); runs 1 and 2 were on the old core. And
+`--scsi-drive`'s help text still said ID 0, where the drive has been at ID 1
+since 2026-09-14; corrected.
+
+*Verification: the console above and the end-of-run report, both from
+`tools/dn5500/scsi-roundtrip.script` on the volume the three
+`scsi-software-*.script` runs produced; `ctest` 152/152. No core change beyond
+the help string.*
 
 
 ## The EXB-8200 belongs at SCSI ID 1: 8 mm drives are IDs 1-4 (2026-09-14)

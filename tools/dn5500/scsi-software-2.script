@@ -1,0 +1,27 @@
+# Run 2 of 3: /com/wbak and /com/rbak from 019594-002, files 10 and 12, onto
+# the volume run 1 wrote back. /com/rbak is the program /usr/apollo/bin/rbak,
+# which a DN3500 install links there; the restore puts the object at the name.
+expect MD14
+expect >
+send DI W\r
+expect >
+send EX DOMAIN_OS\r
+expect )
+send SH\r
+expect login:
+send user\r
+expect Password
+send \r
+expect $
+send /install/tools/rbak_sr10 -dev ct -f 10 install/ri.apollo.os.v.10.4/com/wbak -as /com/wbak\r
+expect Restore complete
+send /install/tools/rbak_sr10 -dev ct -f 12 install/ri.apollo.os.v.10.4/usr/apollo/bin/rbak -as /com/rbak\r
+expect Restore complete
+send ld /com\r
+expect $
+send \x04
+expect Returned status
+expect : ok
+expect )
+send shut\r
+expect Shutdown successful

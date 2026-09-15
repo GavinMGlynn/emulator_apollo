@@ -159,6 +159,38 @@ than on text, which does not translate to this frontend's `expect`. The
 tool-level route above is the one to script, because every step of it ends in a
 line the manual prints.
 
+*Superseded 2026-09-15 for the SCSI software*, which is scripted below by the
+tool-level route this paragraph recommends -- and needs no MINST at all.
+
+## The SCSI software and the round trip (2026-09-15)
+
+The restored volume lacks four objects a SCSI round trip needs, and its own
+`/install/tools/rbak_sr10` restores them by name. One cartridge's worth per run,
+so each run ends cleanly and its writeback is the next run's disk:
+
+    APOLLO_CARTRIDGE=scratch/019594-002.ct APOLLO_DISK=scratch/v0.awd \
+      tools/dn5500-md.sh --configure --clock <after v0's dismount> \
+      --boot-script tools/dn5500/scsi-software-1.script \
+      --boot-stop-on-script-end --disk-writeback scratch/v1.awd \
+      --boot-limit 8000000000
+
+then `scsi-software-2.script` from `v1` to `v2` with the same cartridge, and
+`scsi-software-3.script` from `v2` to `v3` with a copy of `019594-004` and
+`--boot-limit 60000000000` -- `rmt_scsi` is 28.4 MB into its tape file, and the
+run takes 12.3 G instructions. The round trip, with the SCSI card in the tape's
+slot and the drive at ID 1:
+
+    APOLLO_DISK=scratch/v3.awd tools/dn5500-md.sh --configure \
+      --clock <after v3's dismount> --scsi --scsi-drive \
+      --boot-script tools/dn5500/scsi-roundtrip.script \
+      --boot-stop-on-script-end --boot-limit 20000000000
+
+**Each `--clock` must be later than the previous run's dismount**, which
+`apollo-headless --volume <image>` prints: every run's `shut` stamps the volume,
+and a clock behind it stops the kernel at "The calendar is more than a minute
+slow". It ends `Index complete.` and the report reads 102 commands, 102
+selections, 11 check conditions.
+
 ## Four things in the dialogue that C50's table does not have
 
 `FINDINGS.md` C50 recorded the DN3500's INVOL dialogue from a MAME session. It

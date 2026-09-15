@@ -1,0 +1,32 @@
+# The DS5500's SCSI software, run 1 of 3: /sau14/scsi14.drvr from
+# 019594-002 file 3. The volume tools/dn5500/restore.script produces has none of
+# the four pieces a SCSI round trip needs; these three runs restore them object
+# by object with the volume's own /install/tools/rbak_sr10, rather than a whole
+# MINST pass. One object per run keeps each run short enough to end cleanly,
+# which --disk-writeback and the report both need. README.md has the invocation.
+#
+# rbak's own help: `{-pn|-all} [-as disk_pn]`, pathnames not wildcards. `$ `
+# anchors, never two identical expects in a row; EOT then `shut` at the `)`
+# prompt commits the single-level store (FINDINGS.md C196).
+expect MD14
+expect >
+send DI W\r
+expect >
+send EX DOMAIN_OS\r
+expect )
+send SH\r
+expect login:
+send user\r
+expect Password
+send \r
+expect $
+send /install/tools/rbak_sr10 -dev ct -f 3 install/ri.apollo.os.v.10.4/sau14/scsi14.drvr -as /sau14/scsi14.drvr\r
+expect Restore complete
+send ld /sau14\r
+expect $
+send \x04
+expect Returned status
+expect : ok
+expect )
+send shut\r
+expect Shutdown successful

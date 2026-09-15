@@ -4457,8 +4457,11 @@ discipline throughout.
   hardware failure; the drive at ID 0 where 8 mm drives are IDs 1-4; a WRITE
   refused after a WRITE; and an ICMB freed only when the host zeroed it, where
   `[WD7000]` §5.2.4 frees it on the acknowledge. Detail in `PROJECT_STATUS.md`.
-  **Next**: the same round trip on the DS5500, which the SCSI item below is
-  about; its earlier boot stalled in the same wait loop.
+  **The DS5500 round trip works too, 2026-09-15**: its SCSI software restored
+  object by object, then the same `wbak`/`rbak -index`, 102 commands and 102
+  completions. The SCSI item below is closed. *(Until then: "Next: the same
+  round trip on the DS5500, which the SCSI item below is about; its earlier boot
+  stalled in the same wait loop.")*
 - **Calendar 24-hour mode, found and closed 2026-09-15** while installing the
   DS5500's SCSI software: the battery held `DM` and not `24/12`, so afternoon
   boots read the PM-flagged hour as up to 140 hours. Three volume stamps
@@ -4917,111 +4920,20 @@ substance. They are the only items here with no route that is simply work.
       *Verification: `check_frontend_flags` 26 → 29, plus a source check that
       all 90 are accounted for; `doc_claims` green.*
 
-- [ ] **The DS5500 has a SCSI bus and this core models no SCSI.** From the
-      `019411-A00` walk, Figure 1-5: a "Disk or SCSI/Disk Controller" drives a
-      SCSI bus to magtape and a second cartridge tape. Subsystem-sized, and
-      named here rather than left implicit because the DS5500 is in the model
-      table — a supported model with an unmodelled bus is the kind of gap that
-      reads as working until something uses it.
-      **Not blocked on evidence; gated on reachability** (stated 2026-09-08,
-      because "blocked" without a named unblocker is not a claim). Nothing here
-      is unknown — SCSI is a documented bus and `019411-A00` names the
-      controller. What is missing is a machine that would exercise it: the
-      DS5500 stops at its second instruction for want of a **68040 execution
-      core**, so a SCSI subsystem would be written against no boot and no
-      oracle. *It becomes worth starting when the DN5500 runs*, which is the
-      68040 item's dependency, and not before.
-      **The gate has moved twice and the sentence above is stale, kept because
-      it is what the decision was made on.** The DS5500 no longer stops at its
-      second instruction: the 68040 increment took it through its whole
-      self-test suite (2026-09-09), and placing Table 2-5's I/O protection map
-      took it to **`MD14 REV 2.00` at its own prompt** and through
-      `DI C` / `EX INVOL` — a stand-alone utility loaded off cartridge and
-      *executing*, with `translation off` (2026-09-10). So "written against no
-      boot and no oracle" is no longer true of the boot half.
-      *What is still true is the useful part*: nothing here is a knowledge gap,
-      and the thing that would make a SCSI subsystem checkable is software that
-      drives it. The firmware's own Winchester test reaches the AT-bus disk, not
-      SCSI, and `/sau14/scsi14.drvr` is a **Domain/OS** driver — so the exerciser
-      is still the operating system, which still waits on a DS5500-bootable
-      volume. Detail in `PROJECT_STATUS.md`.
-      **The gate is open as of 2026-09-12.** The volume exists, `/sau14` is a
-      root-directory entry, the machine's own SELF_TEST **passes every
-      sub-test**, and **Domain/OS boots to the Server Process Manager** —
-      `SPM system init complete. Node ID = 12345`. The exerciser this item has
-      been waiting for since 2026-09-08 is running. What is left is the work
-      itself, which is subsystem-sized and has no evidence gap.
-      **That measurement is answered, and it did not need a boot.** The
-      question this item set — does the booted system touch SCSI at all? — is
-      settled by the Domain/OS run already on disk, now that the address is
-      known. Its region counters read the **cartridge tape** region
-      `050000`-`0500FF` **276,194 times against 5 writes**, which is a status
-      poll, and the run ends with the SC-499 at `status 57, exception, done`.
-      So the booted system hammers exactly the block a WD7000-ASC would occupy,
-      and our DS5500 answers as the tape controller **because that is what the
-      model fits it with**. The 8,435,090 `FF` reads are elsewhere.
-      **Which names the work precisely.** An exerciser needs the DS5500 refitted
-      with the ASC *instead of* the SC-499 — which is what `[RN104]` §3.3.6 says
-      a real machine must do — so the subsystem is `device/ap_wd7000.{h,c}` plus
-      a model-table choice between the two controllers at ISA `200`, after which
-      Domain/OS's own `/sys/mgrs/rmt_scsi` is the exerciser. Nothing is gated on
-      evidence any more; what remains is the module.
-      **The part, the address and the manual, all found 2026-09-12 — and the
-      item is no longer short of evidence.** `019411-A00`'s text layer has
-      **zero** occurrences of "SCSI"; Figure 1-5 at 600 dpi carries the label
-      and no part number and no address; `[GPIO]` Table 3-1 allocates no SCSI
-      address and Table 2-5 names none. The machine's own software does.
-      `tools/awd_read.py` extracted
-      `/install/ri.apollo.os.v.10.4/sau14/scsi14.drvr` — 22,528 bytes, all 22
-      blocks confirmed by their own headers — off the DN3500 volume, and it
-      says outright **"Western Digital WD7000-ASC SCSI Host Adapter"**, with an
-      error message naming the board's own **"i/o address space (w3) jumpers"**.
-      Its reset routine writes 3, 0, 2, 0 to **`050002`** and polls
-      **`050000`** masked `F0`, which is Table A-1 of the part's own spec to the
-      byte: address 0 reads ASC Status, address 2 writes the Host Control
-      register. So the controller is at **ISA `200`, physical `050000`-`050003`**.
-      **`96-000494X3_WD7000-ASC_Engineering_Spec_Aug88.pdf`**, 140 pages, is now
-      in `docs/references/westernDigital/` and is **walked whole, 140/140**,
-      `docs/references/WD7000_WALK.md`. The part is fully specified and the work
-      is bounded: four host registers, a mailbox protocol, ten command-port and
-      eighteen ICB opcodes, a 32-byte SCB, 46 error codes, first-party DMA
-      through the AT 8237 in **cascade mode**. Table 7-5 lists all 32 W3 jumper
-      settings and they run `300H`-`3F8H`, so the Apollo card decodes an address
-      its own part cannot be jumpered to — the same thing Apollo did to the
-      Winchester controller at ISA `1A0`. **One document still to fetch**: the
-      **WD33C93 SBIC** data sheet, deferred to three times and not on this
-      shelf; it is needed only for synchronous-rate negotiation, which the ASC's
-      own firmware performs. Detail in `PROJECT_STATUS.md`.
-      **And that settles the `[RN104]` §3.3.6 notice below**, which this item
-      recorded as unexplained: ISA `200`-`207` is where `[GPIO]` Table 3-1 puts
-      the **Tape Controller** and where `AP_TAPE_ADDR` already is. The WD7000
-      and the SC-499 decode the same block, so a machine cannot carry both —
-      measured from the driver, and exactly what the notice requires.
-      **One constraint to carry into the design.** `[RN104]` §3.3.6 replaces a
-      notice in *Using the CD-ROM Reader* with: "You cannot use a CD-ROM drive
-      in a Series 35xx, 4000, or 4500 system that **uses a non-SCSI cartridge
-      tape drive**. You must either remove the ctape controller from the system
-      or replace your non-SCSI ctape drive with a SCSI ctape drive." The
-      non-SCSI ctape drive **is the SC-499 this core models**, and a DS5500 is a
-      CPU upgrade to exactly those machines — so a real one could not carry both
-      controllers. The notice does not say why and nothing is inferred; it means
-      a SCSI subsystem here is a *replacement* for the cartridge path on this
-      machine class, not an addition beside it, and the model table will have to
-      say which a given machine has.
-      **Awaiting:** the DS5500 round trip -- `wbak` to `m0` and `rbak -index`
-      back on a `--scsi --scsi-drive` DS5500, as the DN3500 did on 2026-09-14.
-      Every child below is done. **And that round trip is gated on the DS5500's
-      software install, not on SCSI work**: `restored.awd` is the boot
-      cartridge's restore alone. `tools/awd_read.py` finds no `/com/rbak`,
-      no `/com/wbak`, no `/sys/mgrs/rmt_scsi` and no `/sau14/scsi14.drvr`
-      (its `/sau14` has ten entries where the DN3500's `/sau7` has ~40), and
-      its `/install` has no `ri.apollo.os.v.10.4` tree. The media carry them:
-      `tools/ct_extract.py` finds `sau14/scsi14.drvr` and `com/wbak` on
-      `019594-002`. What is missing is the DS5500's own post-restore install
-      (GO, log in, `minst` across the four `019594` cartridges), which
-      `tools/dn5500/README.md` specifies and has not scripted. Phase A's volume
-      cannot stand in: it is a DN3500 layout, and a DS5500 page is four
-      sectors.
+- [x] **The DS5500's SCSI bus — closed 2026-09-15 with its round trip.** A
+      WD7000-ASC at ISA `200` in the cartridge tape's slot, identified from
+      `/sau14/scsi14.drvr`, built from `[WD7000]` walked 140/140; `--scsi`
+      exchanges the two cards, as `[RN104]` §3.3.6 requires. The bus is a
+      transaction, and the target the EXABYTE EXB-8200 at ID 1 (`m0`), from
+      `510006-007` and `510005-006`, 215/215. The DS5500 volume lacked the
+      software, and four objects are what it needed:
+      `tools/dn5500/scsi-software-{1,2,3}.script` restore `scsi14.drvr`,
+      `wbak`, `rbak` and `rmt_scsi` with the volume's own `rbak_sr10`, each
+      byte-identical to its tape, and `scsi-roundtrip.script` then runs `wbak`
+      to `m0` and `rbak -index` back. `PROVISIONAL`: the card's IRQ strap and
+      the short diagnostic's 250 ms. *Verification: `Index complete.`; 102
+      commands, 102 selections, 0 timeouts, 11 check conditions, 0 DMA cycles
+      refused — the DN3500's figures exactly.* Detail in `PROJECT_STATUS.md`.
   - [x] **The ASC's host interface — `device/ap_wd7000`, 2026-09-12.** The four
         registers, both status bytes, the host control register, reset with
         §5.1.1's 25 µs minimum enforced and §6.2.14's two diagnostics, the

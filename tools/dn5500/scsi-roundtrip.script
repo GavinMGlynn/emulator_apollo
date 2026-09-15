@@ -1,0 +1,27 @@
+# The SCSI round trip on a DS5500, the DN3500's of 2026-09-14: Domain/OS off
+# the Winchester, a shell, then wbak to the EXB-8200 at SCSI ID 1 (`m0`), a
+# rewind, and rbak -index back. Needs --scsi --scsi-drive, and the volume the
+# three scsi-software runs produce. Ends on lcnode's answer, so
+# --boot-stop-on-script-end closes the run with its report.
+expect MD14
+expect >
+send DI W\r
+expect >
+send EX DOMAIN_OS\r
+expect )
+send SH\r
+expect login:
+send user\r
+expect Password
+send \r
+expect $
+send ld /sau14/scsi14.drvr /com/wbak /com/rbak /sys/mgrs/rmt_scsi\r
+expect $
+send wbak -dev m0 -f 1 -vid SCSI01 -fid scsitest /com/lcnode\r
+expect $
+send rbak -dev m0 -rewind\r
+expect $
+send rbak -dev m0 -f 1 -index -all\r
+expect Index complete
+send /com/lcnode\r
+expect //node_12345
