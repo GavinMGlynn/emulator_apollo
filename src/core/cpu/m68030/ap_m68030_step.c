@@ -4050,6 +4050,7 @@ static bool execute_movem(ap_m68030_cpu_t *cpu, const ap_m68030_misc_t *misc,
   if (!next_word(cpu, clocks, &mask)) {
     return false;
   }
+  cpu->timing_extension = mask; /* §11.6.7 prices by the registers it names */
 
   const bool to_memory = misc->kind == AP_M68030_MISC_MOVEM_TO_MEMORY;
   const bool predecrement = misc->ea.kind == AP_M68030_EA_PREDECREMENT;
@@ -8115,6 +8116,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * `Bcc` 6 clocks and an untaken byte `Bcc` 4, and only the run this step just
    * performed knows which happened. DBcc has three such cases. Everything else
    * is answered by the instruction word alone. */
+  ap_m68030_table_entry_t movem_row; /* `MOVEM`'s row is built, not looked up */
   const ap_m68030_table_entry_t *published = nullptr;
   if (decoded.kind == AP_M68030_DECODED_BRANCH) {
     published = ap_m68030_timing_for_branch(out.instruction, out.branch_taken);
@@ -8130,6 +8132,11 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
        * `CAS2` by their compare. The executors left both where this reads. */
       published = ap_m68030_timing_for_selected(
           out.instruction, cpu->timing_extension, cpu->timing_outcome);
+    }
+    if (published == nullptr) {
+      /* `MOVEM`, a formula in the registers its mask named. */
+      published = ap_m68030_timing_for_movem(out.instruction,
+                                             cpu->timing_extension, &movem_row);
     }
   }
   /* A row footnoted `*` publishes a *component*: `ADD Dn,EA` is 3 clocks, and

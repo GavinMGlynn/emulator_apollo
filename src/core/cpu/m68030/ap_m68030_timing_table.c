@@ -862,6 +862,65 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_vector(unsigned vector,
   }
 }
 
+/* §11.6.7's `MOVEM`, from the page image (p. 11-39): `% + MOVEM EA,RL` is head
+ * 2, `8+4n(n/0/0)` and `8+4n(n/1/0)`; `% + MOVEM RL,EA` is head 2,
+ * `4+2n(0/0/n)` and `4+2n(0/1/n)`. `%` there is Calculate Immediate, §11.6.4
+ * through the mask word, and `+` a maximum time, so both are `PROVISIONAL`.
+ * `[020]` §9.2.7 agrees on `8+4n` and prints `4+3n` for the write, a
+ * different part's microcode.
+ *
+ * **The footnote prices wait states separately, and this core does not follow
+ * it.** It gives `EA,RL` as `8+4n` for up to two wait states and `(8+4n)+(w-2)n`
+ * past that, and `RL,EA` as `(4+2n)+(n-1)w` with a tail of `(n-1)w`: some of a
+ * slow cycle's wait hidden under the microcode. The step instead adds the bus
+ * it measured, wait states and all, to the row's microcode -- so on a slow
+ * port `MOVEM` costs up to `nw` more than the footnote. `PROVISIONAL`, and the
+ * same for every row: the footnote is the only place §11.6 says how a wait
+ * state overlaps. */
+const ap_m68030_table_entry_t *
+ap_m68030_timing_for_movem(uint16_t instruction, uint16_t mask,
+                           ap_m68030_table_entry_t *storage) {
+  const unsigned mode = (unsigned)((instruction >> 3) & 0x7u);
+  const unsigned reg = (unsigned)(instruction & 0x7u);
+  /* `0100 1d00 1s`: `d` the direction, 1 memory to registers, `s` the size.
+   * Mode 0 is `EXT`. */
+  if ((instruction & 0xFB80u) != 0x4880u || mode < 0x2u) {
+    return nullptr;
+  }
+  const bool to_registers = (instruction & 0x0400u) != 0u;
+  /* "only control addressing modes or the postincrement" into registers, and
+   * "only control alterable addressing modes or the predecrement" out of
+   * them. */
+  const bool allowed =
+      to_registers ? (mode == 0x2u || mode == 0x3u || mode == 0x5u ||
+                      mode == 0x6u || (mode == 0x7u && reg <= 0x3u))
+                   : (mode == 0x2u || mode == 0x4u || mode == 0x5u ||
+                      mode == 0x6u || (mode == 0x7u && reg <= 0x1u));
+  unsigned n = 0;
+  for (uint16_t rest = mask; rest != 0u; rest = (uint16_t)(rest & (rest - 1u))) {
+    n++;
+  }
+  if (!allowed || n == 0u) {
+    return nullptr;
+  }
+  if (to_registers) {
+    *storage = (ap_m68030_table_entry_t){
+        "MOVEM EA,RL",
+        {.head = 2, .tail = 0, .cache_case = 8u + 4u * n,
+         .no_cache_case = 8u + 4u * n, .reads = n, .prefetches = 1},
+        true, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE,
+        AP_M68030_PREFETCH_ALIGNMENT_INVARIANT};
+  } else {
+    *storage = (ap_m68030_table_entry_t){
+        "MOVEM RL,EA",
+        {.head = 2, .tail = 0, .cache_case = 4u + 2u * n,
+         .no_cache_case = 4u + 2u * n, .writes = n, .prefetches = 1},
+        true, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE,
+        AP_M68030_PREFETCH_ALIGNMENT_INVARIANT};
+  }
+  return storage;
+}
+
 const ap_m68030_table_entry_t *
 ap_m68030_timing_for_selected(uint16_t instruction, uint16_t extension,
                               bool outcome) {

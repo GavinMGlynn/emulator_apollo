@@ -767,6 +767,38 @@ static void test_an_exception_is_priced_by_its_vector_and_its_instruction(void) 
   TEST_ASSERT_EQUAL_UINT(4u, m_stack->timing.writes - i_stack->timing.writes);
 }
 
+/* §11.6.7's `MOVEM` rows are formulas in n, the registers the mask names, built
+ * for the n a run moved. The page's "n > 0" leaves an empty mask unpriced, and
+ * each direction takes one increment mode and not the other. */
+static void test_movem_is_priced_by_the_registers_it_moves(void) {
+  ap_m68030_table_entry_t storage;
+
+  /* MOVEM.L (A0),D0-D7: 8 + 4 * 8. */
+  const ap_m68030_table_entry_t *in =
+      ap_m68030_timing_for_movem(0x4CD0u, 0x00FFu, &storage);
+  TEST_ASSERT_TRUE(form_is(in, "MOVEM EA,RL"));
+  TEST_ASSERT_EQUAL_UINT(40u, in->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(8u, in->timing.reads);
+  TEST_ASSERT_TRUE(in->data_dependent);
+  TEST_ASSERT_EQUAL_INT(AP_M68030_EA_TIME_CALCULATE_IMMEDIATE,
+                        in->effective_address_time);
+  TEST_ASSERT_TRUE(ap_m68030_timing_consistent(&in->timing));
+
+  /* MOVEM.L D0-D1,-(A7): 4 + 2 * 2. */
+  const ap_m68030_table_entry_t *out =
+      ap_m68030_timing_for_movem(0x48E7u, 0xC000u, &storage);
+  TEST_ASSERT_TRUE(form_is(out, "MOVEM RL,EA"));
+  TEST_ASSERT_EQUAL_UINT(8u, out->timing.cache_case);
+  TEST_ASSERT_EQUAL_UINT(2u, out->timing.writes);
+  TEST_ASSERT_TRUE(ap_m68030_timing_consistent(&out->timing));
+
+  TEST_ASSERT_NULL(ap_m68030_timing_for_movem(0x4CD0u, 0x0000u, &storage));
+  TEST_ASSERT_NULL(ap_m68030_timing_for_movem(0x4880u, 0x00FFu, &storage)); /* EXT.W D0 */
+  TEST_ASSERT_NULL(ap_m68030_timing_for_movem(0x48D8u, 0x00FFu, &storage)); /* to (A0)+ */
+  TEST_ASSERT_NULL(ap_m68030_timing_for_movem(0x4CE0u, 0x00FFu, &storage)); /* from -(A0) */
+  TEST_ASSERT_NULL(ap_m68030_timing_for_movem(0x4A90u, 0x00FFu, &storage)); /* TST.L (A0) */
+}
+
 /* **Domain/OS's SCSI wait loop, priced in every instruction.** The kernel's
  * `3C4E4612` polls the ASC 160,000 times and gives up; three of its six
  * instructions had no row, so the loop ran at 39 clocks an iteration and
@@ -1050,6 +1082,7 @@ int main(void) {
   RUN_TEST(test_the_immediate_bit_and_move_forms_find_their_rows);
   RUN_TEST(test_the_rows_an_extension_or_outcome_selects_are_found);
   RUN_TEST(test_an_exception_is_priced_by_its_vector_and_its_instruction);
+  RUN_TEST(test_movem_is_priced_by_the_registers_it_moves);
   RUN_TEST(test_the_scsi_drivers_wait_loop_is_priced_in_every_instruction);
   RUN_TEST(test_the_rows_that_expose_a_prefetch_are_the_memory_forms);
   RUN_TEST(test_an_exact_prefetch_cost_is_not_always_zero_or_one);

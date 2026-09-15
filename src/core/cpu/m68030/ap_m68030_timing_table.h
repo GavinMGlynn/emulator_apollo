@@ -159,6 +159,15 @@ ap_m68030_timing_for_exception(ap_m68030_exception_row_t row);
 [[nodiscard]] const ap_m68030_table_entry_t *
 ap_m68030_timing_for_vector(unsigned vector, uint16_t instruction);
 
+/* §11.6.7's `MOVEM` rows, which are formulas in n, the number of registers
+ * the mask names -- so the row is built for the n this run moved, into
+ * `storage`, rather than looked up. NULL for a word that is not `MOVEM`, for a
+ * mode its direction does not take, and for an empty mask, which the page's
+ * "n > 0" leaves unpriced. */
+[[nodiscard]] const ap_m68030_table_entry_t *
+ap_m68030_timing_for_movem(uint16_t instruction, uint16_t mask,
+                           ap_m68030_table_entry_t *storage);
+
 /* ---------------------------------------------------------------------------
  * The branches, whose cost is not a function of the instruction word.
  *

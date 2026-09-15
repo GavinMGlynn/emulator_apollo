@@ -4488,10 +4488,13 @@ discipline throughout.
   **Stage 5d**: `CHK`/`CHK2` by outcome — 216 → 222 — and §11.6.16 whole.
   **Next**: `MOVEM`, then the full-format address rows and §11.6.6's mode-6
   destinations.
+  **Stage 5e**: `MOVEM` built for the registers it moved; §11.6.7 whole.
+  **Next**: the long multiplies and divides by extension word, §11.6.6's
+  mode-6 destinations and the full-format address rows.
   **Owed, all read as page images**: §11.6.6 brief/full-format destinations
-  (needs the extension word), `MOVEM`, the long multiplies and divides, and
+  (needs the extension word), the long multiplies and divides, and
   §11.6.4's and §11.6.5's full-format rows. *(Before stage 4b this also named
-  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17; before 5c, §11.6.18; before 5d, `CHK`/`CHK2`.)*
+  §11.6.14, §11.6.4's table, `MOVEC Rn,Cr` and `CAS2`; before 5b, §11.6.17; before 5c, §11.6.18; before 5d, `CHK`/`CHK2`; before 5e, `MOVEM`.)*
   *(Before stage 4a this list also named §11.6.7, §11.6.16's rest and "the
   §11.6.4 (calculate immediate) and §11.6.5 (jump) tables, which do not exist
   in the code".)*

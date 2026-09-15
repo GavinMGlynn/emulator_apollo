@@ -923,6 +923,44 @@ checked to carry the new rows (built 11:12 against the table's 11:08 edit), so
 the unmoved hash is the machine's answer and not a stale build.*
 
 
+## §11.6 stage 5e: `MOVEM` by the registers it moves (2026-09-15)
+
+§11.6.7's two `MOVEM` rows are formulas in n, the registers the mask names:
+`8+4n(n/0/0)` into registers and `4+2n(0/0/n)` out of them, both `%` (§11.6.4
+through the mask word) and `+`. They are not table rows.
+`ap_m68030_timing_for_movem` builds the row for the n a run moved, from the
+mask `execute_movem` leaves in `timing_extension`, and the step consults it
+after the selected lookup. An empty mask is not priced, since the page's
+formulas are for "n > 0", and each direction refuses the increment mode it does
+not take. §11.6.7 is whole.
+
+**The footnote's wait states are not followed.** It prices `EA,RL` as `8+4n` up
+to two wait states and `(8+4n)+(w−2)n` beyond, and `RL,EA` as `(4+2n)+(n−1)w`
+with a tail of `(n−1)w`: part of a slow cycle's wait hidden under the
+microcode. The step adds the bus it measured, wait states and all, so on a slow
+port `MOVEM` can cost up to `nw` more than the footnote. `PROVISIONAL`, and the
+same holds for every row, since that footnote is the only place §11.6 says how a
+wait state overlaps. `[020]` §9.2.7 agrees on `8+4n` and prints `4+3n` for the
+write, a different part.
+
+*Verification: `ctest` 152/152. `timing_table_suite` builds `MOVEM.L
+(A0),D0-D7` at 40 and `MOVEM.L D0-D1,-(A7)` at 8, and refuses an empty mask,
+`EXT` and each direction's wrong increment mode. `machine_suite` composes
+`MOVEM.L D4/D6-D7/A3/A6,(A0)` through §11.6.4 on a running machine, warm and
+cold, at 16. **The `movem` probe rose 28 → 46**: its two `MOVEM`s, n = 2 each,
+gain 6 and 16 clocks of composed microcode, and each gives back the 2-clock
+prefetch it was charged as measured bus, which the priced row's exposure (the
+page's difference, zero) replaces. Re-blessed here. Identity
+`F75A5354B805FFDA` → **`8505F4B510592AD1`**, clocks 1,809,428,807 →
+**1,833,260,857** (+23,832,050, +1.32%), final PC `2EDC` → `2EE4`. The move is
+large because the boot PROM's subroutines save and restore registers with
+`MOVEM`, until now unpriced. It is priced by the page's microcode on the bus the
+DN3500's memory measured, wait states included, so it is the upper reading the
+wait-state `PROVISIONAL` above describes. The report's only other difference is
+the calendar's update count, 72 → 73, as the same window now spans more time.
+No console line moved.*
+
+
 ## The EXB-8200 belongs at SCSI ID 1: 8 mm drives are IDs 1-4 (2026-09-14)
 
 **With byte 15 fixed, the driver interrogated the drive and still refused
@@ -5461,6 +5499,10 @@ commits between.
 **1,809,428,807 clocks**: `RTE` and the bus faults priced from §11.6.18. No
 console line moved; see "§11.6 stage 5c". `2E3A62388CDACFC7` held for the
 commits between.
+
+**The reference is `8505F4B510592AD1` as of §11.6 stage 5e, 2026-09-15**, at
+**1,833,260,857 clocks**: `MOVEM` priced. No console line moved; see "§11.6
+stage 5e". `F75A5354B805FFDA` held for stages 5c and 5d.
 
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it
@@ -19682,9 +19724,9 @@ failure that cost a bit position in the 68020's module entry word.
 | Per-instruction timing report (`--time-instructions`) | bus and cache time only, pinned as a golden; the 0/2 alternation is the cache holding register serving two instruction words per fetch | `tests/goldens/timing.txt`; oracle side by `tools/mame-oracle/steptime.lua` |
 | Probe suite (`probe/`, `--run-probes`) | 8 probes on the constructed machine, needing no firmware; results pinned as a golden under every build preset, identical between `-O0` and `-O3` | `tests/goldens/probes.txt`, `probe_suite`, 7 tests |
 | Constructed machine (`machine/`) | **An indivisible read-modify-write holds the bus as of 2026-09-06** -- `[030]` §7.7.1 has the arbitration state machine "ignore bus requests" during one, §11.9 and Appendix A restate it. Two failures compounded: `ap_m68030_arb_set_rmc` modelled the lock in full, three states because §7.7.4 distinguishes the first read cycle, and was called by `arb_suite` and by **nothing in `src/`** -- so a DMA channel asking during a semaphore operation was granted the bus; and `TAS`, the one instruction the architecture provides for semaphores, never asserted `RMC` at all, only `CAS` and `CAS2` did. Both fixed. The lock is held for the whole instruction where the hardware allows arbitration during the first read cycle -- narrowing it needs the per-cycle processor and is a named plan item. A 68030 on flat RAM, with an out-of-range access faulting rather than wrapping; with a board attached it takes its model's clock, charges the AT bus's wait states and takes device interrupts on the Apollo vectors, and **stalls while another master holds the bus** — demonstrated rather than asserted: a cascaded AT master taken to ownership makes `ap_board_processor_may_run` false and costs the processor `AP_MACHINE_STALL_LIMIT` clocks for one instruction — and advances the devices that keep time | `machine_suite`, 73 tests -- two of them driving `ap_machine_tick`, which no test drove at all before 2026-09-08, one boardless and one on a real board; one composing the SCSI wait loop's two memory forms from their tables on a running machine; and one composing `LEA`, `PEA`, `JMP` and `JSR` through their own address tables |
-| 68030 published timings (§11.6) | **Not complete: 222 rows**, and §11.6 has more. Whole: §11.6.9, §11.6.10, §11.6.11, §11.6.13, §11.6.15. §11.6.12 is whole except `LSd` and `ASR` by register count, which the page marks `%`/`+` as count-dependent. §11.6.8 is complete except the long multiplies and divides, which the extension word selects. §11.6.6's single-effective-address rows are in; the brief- and full-format destinations are not, since mode 6's format lives in the extension word. §11.6.7 is in except `MOVEM`, a formula in the register count. §11.6.14 is whole. §11.6.16 is whole, its `CHK` and `CHK2` rows by outcome. *(Until stage 5d: "§11.6.16 is in except `CHK` and `CHK2`, whose exception-taken rows include the exception itself.")* The rows an extension word or an outcome selects — `MOVEC Rn,Cr`, `MOVES`, the memory bit fields, `CAS`, `CAS2` — are priced from what their executors record. §11.6.17 is whole and charged at the step's exception sites. §11.6.18 is whole: `RTE` priced by the frame it unstacks, and the bus fault rows at the fault sites. **Owed**: `MOVEM`, and §11.6.4's and §11.6.5's full-format rows — all read as page images 2026-09-14. *(Until stage 5b the owed list began with §11.6.17, until 5c with §11.6.18, and until 5d it named `CHK`/`CHK2`.)* *(Until stage 4b this read: "§11.6.7 is in except `MOVEC Rn,Cr`, `MOVES` and `MOVEM` … Owed: §11.6.14, §11.6.17, §11.6.18, those §11.6.7 rows, §11.6.16's `CAS`, `CAS2`, `CHK` and `CHK2`, the §11.6.4 table with its consumers …".)* *(Until stage 4a this read: "Part of §11.6.16. Owed: §11.6.7, §11.6.14, §11.6.17, §11.6.18, the rest of §11.6.16 … and the §11.6.4 and §11.6.5 address tables, which were never transcribed".)* The step composes §11.6.1 through §11.6.5. `CHK` used to come back as `NEGX` or `CLR` and `EXG` as `AND Dn,Dn`. §11.6.10's seven instructions used to come back as the register arithmetic they share bits with: `ABCD -(An),-(An)` was priced as `AND Dn,Dn`. Scheduled as exposed microcode + measured operand bus + prefetch exposure (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`), with `*` rows composed through §11.6.1 and `**`/`#` rows through §11.6.2. Branches are reached through their run-time outcome. Seven instructions agree with the oracle (`FINDINGS.md` C8). **Every row is reachable**, which six were not until 2026-09-14 (`ADDI #,Dn`, the SR/CCR forms, `EXT`, `TAS`, `Scc`, after `NBCD`); `DIVS.L`/`DIVU.L` are the named exceptions, selected by their extension word. The four divides, their four `EA,Dn` forms and `CAS2`'s two rows carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 21 tests, one walking all 65,536 words for reachability; both published columns checked on a running machine by `machine_suite` |
+| 68030 published timings (§11.6) | **Not complete: 222 rows**, and §11.6 has more. Whole: §11.6.9, §11.6.10, §11.6.11, §11.6.13, §11.6.15. §11.6.12 is whole except `LSd` and `ASR` by register count, which the page marks `%`/`+` as count-dependent. §11.6.8 is complete except the long multiplies and divides, which the extension word selects. §11.6.6's single-effective-address rows are in; the brief- and full-format destinations are not, since mode 6's format lives in the extension word. §11.6.7 is whole, `MOVEM` as a formula built for the registers a run moved. *(Until stage 5e: "§11.6.7 is in except `MOVEM`, a formula in the register count.")* §11.6.14 is whole. §11.6.16 is whole, its `CHK` and `CHK2` rows by outcome. *(Until stage 5d: "§11.6.16 is in except `CHK` and `CHK2`, whose exception-taken rows include the exception itself.")* The rows an extension word or an outcome selects — `MOVEC Rn,Cr`, `MOVES`, the memory bit fields, `CAS`, `CAS2` — are priced from what their executors record. §11.6.17 is whole and charged at the step's exception sites. §11.6.18 is whole: `RTE` priced by the frame it unstacks, and the bus fault rows at the fault sites. **Owed**: §11.6.4's and §11.6.5's full-format rows — all read as page images 2026-09-14. *(Until stage 5b the owed list began with §11.6.17, until 5c with §11.6.18, until 5d it named `CHK`/`CHK2`, and until 5e `MOVEM`.)* *(Until stage 4b this read: "§11.6.7 is in except `MOVEC Rn,Cr`, `MOVES` and `MOVEM` … Owed: §11.6.14, §11.6.17, §11.6.18, those §11.6.7 rows, §11.6.16's `CAS`, `CAS2`, `CHK` and `CHK2`, the §11.6.4 table with its consumers …".)* *(Until stage 4a this read: "Part of §11.6.16. Owed: §11.6.7, §11.6.14, §11.6.17, §11.6.18, the rest of §11.6.16 … and the §11.6.4 and §11.6.5 address tables, which were never transcribed".)* The step composes §11.6.1 through §11.6.5. `CHK` used to come back as `NEGX` or `CLR` and `EXG` as `AND Dn,Dn`. §11.6.10's seven instructions used to come back as the register arithmetic they share bits with: `ABCD -(An),-(An)` was priced as `AND Dn,Dn`. Scheduled as exposed microcode + measured operand bus + prefetch exposure (plain `max(microcode, bus)` was the retired first model — see above and `M68030_TIMING.md`), with `*` rows composed through §11.6.1 and `**`/`#` rows through §11.6.2. Branches are reached through their run-time outcome. Seven instructions agree with the oracle (`FINDINGS.md` C8). **Every row is reachable**, which six were not until 2026-09-14 (`ADDI #,Dn`, the SR/CCR forms, `EXT`, `TAS`, `Scc`, after `NBCD`); `DIVS.L`/`DIVU.L` are the named exceptions, selected by their extension word. The four divides, their four `EA,Dn` forms and `CAS2`'s two rows carry the manual's data-dependent marker and are `PROVISIONAL` | `timing_table_suite`, 22 tests, one walking all 65,536 words for reachability; both published columns checked on a running machine by `machine_suite` |
 | 68030 ATC replacement | the history bit now means *recently used*, per `MC68851 PMMU User's Manual` §5.2.1.3 — a translating hit marks it, a `PTEST` probe does not. `PROVISIONAL` narrowed to victim choice among clear-history entries | `atc_suite`, 24 tests |
-| 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 21 tests |
+| 68030 prefetch marginal cost | `NCC − CC` over the published prefetch count, computed in code across every row; the two rows where it is not integral are named in the test rather than rounded away | `timing_table_suite`, 22 tests |
 | 68030 effective address timings (§11.6.1–§11.6.5) | fetch, fetch-immediate, calculate, calculate-immediate and jump rows for the non-full-format modes, and the fetch and calculate full-format rows, with the table's `-` and "+op head" notations carried rather than flattened. All five non-full-format tables are composed into the step; the full-format rows are not, since mode 6's format is in the extension word. **Not transcribed**: §11.6.4's and §11.6.5's full-format rows. *(Until stage 4b this also named §11.6.4's table, whose consumers had not been selectable.)* *(Until 2026-09-14 this row read "Not yet composed into the step", stale since §11.6.1 was.)* | `ea_timing_suite`, 30 tests |
 | 68030 instruction overlap (§11.3's Equations 11-1 and 11-2) | both compositions, deliberately without §11.6's per-instruction figures — those must be measured, not transcribed. The cache case through head and tail, the no-cache case by plain addition, and (11-2) shown to be (11-1) over *components* rather than a second rule | `overlap_suite`, 15 tests and `ea_timing_suite`, 12 — including both of the manual's own worked examples, at 6 clocks and **40** |
 | 68030 state hash (the identity harness's CPU half) | working: every architectural register, the MMU and cache control registers, the pipe, both caches, the ATC, and the accumulated clock — host pointers excluded by construction, since `ap_hash.h` has no pointer helper | `state_suite`, 16 tests sweeping every field; `step_suite`'s same-program-twice check |

@@ -1088,6 +1088,10 @@ static void test_the_address_forms_compose_from_their_own_tables(void) {
       /* §11.6.14 through §11.6.4. Repeated, the extension word takes a 16-bit
        * field at offset D3 = 0: two bytes, so the `<5 Bytes` row. */
       {0xE8D0u, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, true, "BFTST (A0)"},
+      /* §11.6.7's `MOVEM`, a formula in n. Repeated, the word is its own mask:
+       * $48D0 names D4, D6, D7, A3 and A6, five long writes, `4 + 2 * 5`. */
+      {0x48D0u, AP_M68030_EA_TIME_CALCULATE_IMMEDIATE, true,
+       "MOVEM.L D4/D6-D7/A3/A6,(A0)"},
   };
 
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
@@ -1095,6 +1099,11 @@ static void test_the_address_forms_compose_from_their_own_tables(void) {
         ap_m68030_timing_for_word(CASES[c].word);
     if (row == nullptr) {
       row = ap_m68030_timing_for_selected(CASES[c].word, CASES[c].word, false);
+    }
+    ap_m68030_table_entry_t movem_storage;
+    if (row == nullptr) {
+      row = ap_m68030_timing_for_movem(CASES[c].word, CASES[c].word,
+                                       &movem_storage);
     }
     TEST_ASSERT_NOT_NULL_MESSAGE(row, CASES[c].what);
     TEST_ASSERT_EQUAL_INT_MESSAGE(CASES[c].table, row->effective_address_time,
