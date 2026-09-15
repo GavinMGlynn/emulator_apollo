@@ -126,6 +126,13 @@ static unsigned fetch_operand_size(uint16_t instruction) {
     return ((instruction >> 6) & 0x3u) == 0x0u   ? 1u
            : ((instruction >> 6) & 0x3u) == 0x1u ? 2u
                                                  : 4u;
+  case 0x4u:
+    /* `CHK`'s bound, whose size is bits 8-7: `10` a long, `11` a word. Every
+     * other `*` row in this family is a byte or word immediate's. */
+    if ((instruction & 0xF1C0u) == 0x4100u) {
+      return 4u;
+    }
+    return (instruction & 0xF1C0u) == 0x4180u ? 2u : 1u;
   default:
     return 1u;
   }
@@ -2686,6 +2693,69 @@ static bool write_frame_field(ap_m68030_cpu_t *cpu, uint32_t address,
       cpu, &cpu->regs, cpu->data, &where, size, value, AP_M68030_FC_SUPERVISOR_DATA);
   *clocks += wrote.clocks;
   return wrote.ok;
+}
+
+/* The effective address table a row's footnote sends it to, for the address in
+ * bits 5-0 of the instruction -- which is where it is for every row that has
+ * one. NULL for a row that needs none, and for a mode its table does not
+ * print. Shared by the instruction pricing and by the exception path, whose
+ * `CHK` rows are footnoted too. */
+static const ap_m68030_ea_timing_t *
+row_ea_timing(const ap_m68030_table_entry_t *row, uint16_t instruction) {
+  const ap_m68030_ea_t ea =
+      ap_m68030_ea_decode((instruction >> 3) & 7u, instruction & 7u);
+  switch (row->effective_address_time) {
+  case AP_M68030_EA_TIME_FETCH:
+    /* The size is read only for §11.6.1's immediate rows: `CHK`'s bound, a
+     * status move's source. `fetch_operand_size` carries both. */
+    return ap_m68030_ea_fetch_timing(ea.kind, fetch_operand_size(instruction));
+  case AP_M68030_EA_TIME_FETCH_IMMEDIATE:
+    /* §11.6.2, whose entry covers the immediate *and* the destination
+     * together -- which is why a `**` row cannot be priced off §11.6.1.
+     *
+     * The immediate's size is the instruction's operand size, since the source
+     * is the operand: `ADDI.L` carries a long and `ADDI.W` a word. Table 2-3's
+     * byte case occupies a whole extension word and is therefore the word row.
+     * The size comes from bits 7-6, where family `0000`'s immediate rows carry
+     * it -- `00` byte, `01` word, `10` long -- except the static bit
+     * operations, `0000 1000 tt`, whose bits 7-6 name the operation and whose
+     * bit number is always one word. `CHK2`'s bits 7-6 read `11`, and its
+     * "immediate" is its extension word. */
+    return ap_m68030_ea_fetch_immediate_timing(
+        ea.kind, (instruction & 0xFF00u) != 0x0800u &&
+                     ((instruction >> 6) & 3u) == 2u);
+  case AP_M68030_EA_TIME_CALCULATE:
+    /* §11.6.3: the address calculated and nothing read -- `CLR Mem` writes its
+     * destination without reading it first. */
+    return ap_m68030_ea_calculate_timing(ea.kind);
+  case AP_M68030_EA_TIME_CALCULATE_IMMEDIATE:
+    /* §11.6.4. Every consumer's "immediate" is its own extension word -- the
+     * bit fields', `CAS`'s, `MOVES`' -- so the word column. */
+    return ap_m68030_ea_calculate_immediate_timing(ea.kind, false);
+  case AP_M68030_EA_TIME_JUMP:
+    /* §11.6.5: where `JMP` or `JSR` goes. Its rows read nothing and fetch
+     * nothing -- the refill at the target is in the operation's own row. */
+    return ap_m68030_ea_jump_timing(ea.kind);
+  case AP_M68030_EA_TIME_NONE:
+    break;
+  }
+  return nullptr;
+}
+
+/* A row's microcode: its cache case composed with its address's through
+ * Equation (11-2), less the bus both publish -- "the read, prefetch, and write
+ * cycles are included in the total clock cycle number", at "two-clock reads and
+ * writes". The bus itself is what the core measured. */
+static uint32_t row_microcode(const ap_m68030_table_entry_t *row,
+                              const ap_m68030_ea_timing_t *ea) {
+  ap_m68030_overlap_state_t composed = ap_m68030_overlap_begin();
+  ap_m68030_ea_timing_compose(&composed, ea, &row->timing);
+  unsigned published_bus = (row->timing.reads + row->timing.writes) * 2u;
+  if (ea != nullptr) {
+    published_bus += (ea->timing.reads + ea->timing.writes) * 2u;
+  }
+  const uint64_t total = ap_m68030_overlap_total(&composed);
+  return total > published_bus ? (uint32_t)(total - published_bus) : 0u;
 }
 
 /* What §11.6.17 charges for an exception beyond the bus it publishes: the row's
@@ -7980,8 +8050,13 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * this path returns before the pricing below -- so the row's microcode is
      * added here to the bus both of them ran. A `BKPT` nothing acknowledged is
      * both of its rows: the acknowledge, then the illegal instruction. */
-    out.clocks += exception_microcode(
-        ap_m68030_timing_for_vector(vector, out.instruction));
+    const ap_m68030_table_entry_t *raised =
+        ap_m68030_timing_for_vector(vector, out.instruction);
+    if (raised != nullptr) {
+      /* Composed with the row's address table where it names one: `CHK EA,Dn`
+       * and `CHK2` taking their exception still fetched their bound first. */
+      out.clocks += row_microcode(raised, row_ea_timing(raised, out.instruction));
+    }
     if (vector == AP_M68030_VECTOR_ILLEGAL_INSTRUCTION &&
         (out.instruction & 0xFFF8u) == 0x4848u) {
       out.clocks += exception_microcode(ap_m68030_timing_for_word(out.instruction));
@@ -8071,62 +8146,8 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
    * `**` rows are still declined. That footnote names §11.6.2, Fetch Immediate
    * Effective Address, which is a different table and not transcribed; pricing
    * one off §11.6.1 would produce a plausible number from the wrong page. */
-  const ap_m68030_ea_timing_t *ea_timing = nullptr;
-  if (published != nullptr) {
-    const ap_m68030_ea_t ea =
-        ap_m68030_ea_decode((out.instruction >> 3) & 7u, out.instruction & 7u);
-    switch (published->effective_address_time) {
-    case AP_M68030_EA_TIME_FETCH:
-      /* The size is read only for §11.6.1's immediate rows. No `*` row can
-       * *take* an immediate -- every one of them writes its effective address
-       * back -- so the figure passed here is never the one used, and a long is
-       * the safe reading if that ever changes: it is the larger of the two. */
-      ea_timing = ap_m68030_ea_fetch_timing(
-          ea.kind, fetch_operand_size(out.instruction));
-      break;
-    case AP_M68030_EA_TIME_FETCH_IMMEDIATE:
-      /* §11.6.2, whose entry covers the immediate *and* the destination
-       * together -- which is why a `**` row cannot be priced off §11.6.1, and
-       * why these declined until that table was transcribed.
-       *
-       * The immediate's size is the instruction's operand size, since the
-       * source is the operand: `ADDI.L` carries a long and `ADDI.W` a word.
-       * Table 2-3's byte case occupies a whole extension word and is therefore
-       * the word row, which is the same rule §11.6.1's immediate rows follow.
-       *
-       * The size comes from bits 7-6, which is where family `0000`'s immediate
-       * rows carry it -- `00` byte, `01` word, `10` long. Every `**` row in the
-       * transcription is one of those, so this is read where the manual puts it
-       * rather than inferred. */
-      /* Except the static bit operations, `0000 1000 tt`, whose bits 7-6 name
-       * the operation: their bit number is always one extension word, so
-       * reading `BCLR`'s `10` as a size would price it off the long column. */
-      ea_timing = ap_m68030_ea_fetch_immediate_timing(
-          ea.kind, (out.instruction & 0xFF00u) != 0x0800u &&
-                       ((out.instruction >> 6) & 3u) == 2u);
-      break;
-    case AP_M68030_EA_TIME_CALCULATE:
-      /* §11.6.3: the address calculated and nothing read -- `CLR Mem` writes
-       * its destination without reading it first, which is the whole
-       * difference from `NEG Mem`'s fetch. */
-      ea_timing = ap_m68030_ea_calculate_timing(ea.kind);
-      break;
-    case AP_M68030_EA_TIME_CALCULATE_IMMEDIATE:
-      /* §11.6.4. Every consumer's "immediate" is its own extension word -- the
-       * bit fields', `CAS`'s, `MOVES`' -- so the word column: the page's "fetch
-       * the second word of the instruction and calculate the specified source
-       * operand or single operand". */
-      ea_timing = ap_m68030_ea_calculate_immediate_timing(ea.kind, false);
-      break;
-    case AP_M68030_EA_TIME_JUMP:
-      /* §11.6.5: where `JMP` or `JSR` goes. Its rows read nothing and fetch
-       * nothing -- the refill at the target is in the operation's own row. */
-      ea_timing = ap_m68030_ea_jump_timing(ea.kind);
-      break;
-    case AP_M68030_EA_TIME_NONE:
-      break;
-    }
-  }
+  const ap_m68030_ea_timing_t *ea_timing =
+      published != nullptr ? row_ea_timing(published, out.instruction) : nullptr;
 
   const bool priceable =
       published != nullptr &&
@@ -8145,17 +8166,7 @@ ap_m68030_step_result_t ap_m68030_step(ap_m68030_cpu_t *cpu) {
      * device still moves the answer -- which is the difference between this and
      * a cycle-table model, and the whole reason the figures were decomposed
      * rather than used whole. */
-    ap_m68030_overlap_state_t composed = ap_m68030_overlap_begin();
-    ap_m68030_ea_timing_compose(&composed, ea_timing, &published->timing);
-
-    unsigned published_bus =
-        (published->timing.reads + published->timing.writes) * 2u;
-    if (ea_timing != nullptr) {
-      published_bus += (ea_timing->timing.reads + ea_timing->timing.writes) * 2u;
-    }
-    const uint64_t total = ap_m68030_overlap_total(&composed);
-    const uint32_t microcode =
-        total > published_bus ? (uint32_t)(total - published_bus) : 0u;
+    const uint32_t microcode = row_microcode(published, ea_timing);
 
     /* What this instruction spent on its own prefetches, told apart from what
      * it spent on operands -- the two are priced differently and `out.clocks`

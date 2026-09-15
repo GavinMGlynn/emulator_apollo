@@ -890,6 +890,8 @@ static void test_every_transcribed_row_matches_both_published_columns(void) {
       /* §11.6.14's register form, two words: repeated, its extension takes
        * the offset from D3 and the width from D0, both zero. */
       {0xE8C0u, "BFTST D0"},
+      /* §11.6.16's in-bounds `CHK`: D0 = 0 against a bound D1 = 0. */
+      {0x4181u, "CHK.W D1,D0"},
   };
 
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {

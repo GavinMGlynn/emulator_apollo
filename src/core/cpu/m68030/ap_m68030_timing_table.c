@@ -261,6 +261,13 @@ enum {
   ROW_RTE_COPROCESSOR,
   ROW_RTE_SHORT_FAULT,
   ROW_RTE_LONG_FAULT,
+  /* §11.6.16's bounds checks. */
+  ROW_CHK_DN_DN,
+  ROW_CHK_DN_DN_TAKEN,
+  ROW_CHK_EA_DN,
+  ROW_CHK_EA_DN_TAKEN,
+  ROW_CHK2,
+  ROW_CHK2_TAKEN,
   ROW_COUNT,
 };
 
@@ -757,6 +764,27 @@ static const ap_m68030_table_entry_t TABLE[ROW_COUNT] = {
     [ROW_RTE_COPROCESSOR] = {"RTE (Coprocessor)", {.head = 1, .tail = 0, .cache_case = 26, .no_cache_case = 26, .reads = 7, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_RTE_SHORT_FAULT] = {"RTE (Short Fault)", {.head = 1, .tail = 0, .cache_case = 36, .no_cache_case = 36, .reads = 10, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
     [ROW_RTE_LONG_FAULT] = {"RTE (Long Fault)", {.head = 1, .tail = 0, .cache_case = 76, .no_cache_case = 76, .reads = 25, .prefetches = 2}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+
+    /* §11.6.16's bounds checks, by outcome, from the page image (p. 11-49).
+     * `CHK EA,Dn` is `*`, fetch; `CHK2` is `#`, which on that page is "Add Fetch
+     * Immediate Address Time" -- §11.6.2 through its extension word, whose
+     * `(An)` row reads one bound while the `CHK2` row reads the other: the two
+     * reads this core runs and `[020]` §9.2.16 prints. Every row but the two
+     * in-bounds `CHK` rows carries `+`, "Indicates Maximum Time", and is
+     * `PROVISIONAL` with the divides. The in-bounds rows are the word lookup's
+     * and the selected lookup's; out of bounds is vector 6's.
+     *
+     * **The exception-taken rows print four writes**, where Table 8-6 puts both
+     * instructions in the six-word frame and this same page's neighbours --
+     * `TRAPcc (Trap)`, `TRAPV (Trap)` -- print that frame's five. Transcribed as
+     * printed: their microcode is the page's less its own bus, and the frame's
+     * fifth write is measured. Recorded in `M68030_WALK.md`. */
+    [ROW_CHK_DN_DN] = {"CHK Dn,Dn (No Exception)", {.head = 8, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 1}, false, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_CHK_DN_DN_TAKEN] = {"CHK Dn,Dn (Exception Taken)", {.head = 4, .tail = 0, .cache_case = 28, .no_cache_case = 30, .reads = 1, .writes = 4, .prefetches = 3}, true, AP_M68030_EA_TIME_NONE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_CHK_EA_DN] = {"CHK EA,Dn (No Exception)", {.head = 0, .tail = 0, .cache_case = 8, .no_cache_case = 8, .prefetches = 1}, false, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_SINGLE_WORD},
+    [ROW_CHK_EA_DN_TAKEN] = {"CHK EA,Dn (Exception Taken)", {.head = 0, .tail = 0, .cache_case = 28, .no_cache_case = 30, .reads = 1, .writes = 4, .prefetches = 3}, true, AP_M68030_EA_TIME_FETCH, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_CHK2] = {"CHK2 Mem,Rn (No Exception)", {.head = 2, .tail = 0, .cache_case = 18, .no_cache_case = 18, .reads = 1, .prefetches = 1}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
+    [ROW_CHK2_TAKEN] = {"CHK2 Mem,Rn (Exception Taken)", {.head = 2, .tail = 0, .cache_case = 40, .no_cache_case = 42, .reads = 2, .writes = 4, .prefetches = 3}, true, AP_M68030_EA_TIME_FETCH_IMMEDIATE, AP_M68030_PREFETCH_ALIGNMENT_INVARIANT},
 };
 
 #define TABLE_COUNT (sizeof TABLE / sizeof TABLE[0])
@@ -801,6 +829,17 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_vector(unsigned vector,
     return &TABLE[ROW_LINE_F];
   case AP_M68030_VECTOR_PRIVILEGE_VIOLATION:
     return &TABLE[ROW_PRIVILEGE];
+  case AP_M68030_VECTOR_CHK:
+    /* `CHK` by its bound's addressing mode, and `CHK2` -- `CMP2`'s encoding
+     * with extension bit 11 set, and only `CHK2` raises the vector. */
+    if ((instruction & 0xF140u) == 0x4100u) {
+      return &TABLE[((instruction >> 3) & 7u) == 0u ? ROW_CHK_DN_DN_TAKEN
+                                                    : ROW_CHK_EA_DN_TAKEN];
+    }
+    if ((instruction & 0xF9C0u) == 0x00C0u) {
+      return &TABLE[ROW_CHK2_TAKEN];
+    }
+    return nullptr;
   case AP_M68030_VECTOR_TRAPCC:
     /* Four instructions share the vector at four costs, and only the word
      * says which. A coprocessor's `cpTRAPcc` shares it too and is not on the
@@ -868,6 +907,16 @@ ap_m68030_timing_for_selected(uint16_t instruction, uint16_t extension,
     default:
       return nullptr;
     }
+  }
+
+  /* `CHK2`, `0000 0ss0 11` with a size of `00`-`10` and extension bit 11 set.
+   * Clear, it is `CMP2`, for which §11.6 prints no row. In bounds; out of
+   * bounds is the exception's row, by vector 6. */
+  if ((instruction & 0xF9C0u) == 0x00C0u && ((instruction >> 9) & 0x3u) != 0x3u) {
+    if (!control || (extension & 0x0800u) == 0u) {
+      return nullptr;
+    }
+    return &TABLE[ROW_CHK2];
   }
 
   /* `CAS2`, `$0CFC` and `$0EFC` -- ahead of `CAS`, whose group they sit in with
@@ -1124,6 +1173,14 @@ const ap_m68030_table_entry_t *ap_m68030_timing_for_word(uint16_t instruction) {
      * instruction, priced by that exception's row as well. */
     if ((instruction & 0xFFF8u) == 0x4848u) {
       return &TABLE[ROW_BKPT];
+    }
+    /* §11.6.16's `CHK`, `0100 rrr1 s0`: bit 8 set and bit 6 clear, `s` of 11 a
+     * word and 10 a long. These are its in-bounds rows; out of bounds is the
+     * exception's row, by vector 6. The bound is a data operand, so an address
+     * register is not one. */
+    if ((instruction & 0xF140u) == 0x4100u && mode != 0x1u &&
+        !(mode == 0x7u && ea_register > 0x4u)) {
+      return &TABLE[mode == 0x0u ? ROW_CHK_DN_DN : ROW_CHK_EA_DN];
     }
     const bool data_alterable = mode == 0x0u || (mode >= 0x2u && mode <= 0x6u) ||
                                 (mode == 0x7u && ea_register <= 0x1u);

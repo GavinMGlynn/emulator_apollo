@@ -126,9 +126,9 @@ static void test_the_divides_are_marked_data_dependent(void) {
     }
   }
   /* DIVS.W, DIVS.L, DIVU.W, DIVU.L, §11.6.8's four `EA,Dn` forms of the word
-   * multiplies and divides, which carry `*+`, and §11.6.16's two `CAS2` rows,
-   * which carry `+`. */
-  TEST_ASSERT_EQUAL_UINT(10u, marked);
+   * multiplies and divides, which carry `*+`, §11.6.16's two `CAS2` rows,
+   * which carry `+`, and its four bounds-check rows that carry `+`. */
+  TEST_ASSERT_EQUAL_UINT(14u, marked);
 }
 
 /* The lookup returns NULL for what is not transcribed, and that is the honest
@@ -294,6 +294,9 @@ static void test_every_inexact_prefetch_cost_is_named(void) {
       "Interrupt (M-Stack)", /* (34−33)/2 = 0.5 */
       "TRAPcc.W (Trap)",     /* (26−24)/3, the operand word's and the refill's */
       "TRAPcc.L (Trap)",     /* (28−26)/3 */
+      "CHK Dn,Dn (Exception Taken)",   /* (30−28)/3 */
+      "CHK EA,Dn (Exception Taken)",   /* (30−28)/3 */
+      "CHK2 Mem,Rn (Exception Taken)", /* (42−40)/3 */
       "LINK.L",  /* (7−6)/2 = 0.5 */
   };
 
@@ -500,7 +503,8 @@ static void test_every_row_is_returned_by_some_instruction(void) {
   for (unsigned k = 0; k < sizeof NAMED / sizeof NAMED[0]; k++) {
     reached[ap_m68030_timing_for_exception(NAMED[k]) - table] = true;
   }
-  static const uint16_t RAISERS[] = {0x4E76u, 0x51FAu, 0x51FBu, 0x51FCu, 0u};
+  static const uint16_t RAISERS[] = {0x4E76u, 0x51FAu, 0x51FBu, 0x51FCu,
+                                     0x4180u, 0x4190u, 0x02D0u, 0u};
   for (unsigned vector = 0; vector < 256u; vector++) {
     for (unsigned w = 0; w < sizeof RAISERS / sizeof RAISERS[0]; w++) {
       const ap_m68030_table_entry_t *row =
@@ -621,8 +625,9 @@ static void test_the_immediate_bit_and_move_forms_find_their_rows(void) {
       {0xC141u, "EXG Ry,Rx", "EXG D0,D1, not AND"},
       {0xC148u, "EXG Ry,Rx", "EXG A0,A0"},
       {0xC189u, "EXG Ry,Rx", "EXG D0,A1"},
-      {0x4190u, nullptr, "CHK.W (A0),D0 -- bit 8 set is not NEGX"},
-      {0x4300u, nullptr, "CHK.L D0,D1 -- bit 8 set is not CLR"},
+      {0x4190u, "CHK EA,Dn (No Exception)", "CHK.W (A0),D0 -- not NEGX"},
+      {0x4300u, "CHK Dn,Dn (No Exception)", "CHK.L D0,D1 -- not CLR"},
+      {0x4188u, nullptr, "CHK.W A0,D0 is not an instruction"},
       {0x49C0u, "EXT Dn", "EXTB.L D0 still EXT"},
       {0x40C0u, "MOVE SR,Dn", "MOVE SR,D0"},
       {0x40D0u, "MOVE SR,Mem", "MOVE SR,(A0)"},
@@ -687,6 +692,9 @@ static void test_the_rows_an_extension_or_outcome_selects_are_found(void) {
       {0x4E73u, 0x000Au, false, "RTE (Short Fault)", "RTE, format $A"},
       {0x4E73u, 0x000Bu, false, "RTE (Long Fault)", "RTE, format $B"},
       {0x4E73u, 0x0007u, false, nullptr, "RTE, format $7 -- a 68040 frame"},
+      {0x02D0u, 0x0800u, false, "CHK2 Mem,Rn (No Exception)", "CHK2.W (A0),D0"},
+      {0x02D0u, 0x0000u, false, nullptr, "CMP2.W (A0),D0 -- no row on the page"},
+      {0x02C0u, 0x0800u, false, nullptr, "CHK2.W D0 -- not a control mode"},
   };
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
     const ap_m68030_table_entry_t *row = ap_m68030_timing_for_selected(
@@ -729,7 +737,9 @@ static void test_an_exception_is_priced_by_its_vector_and_its_instruction(void) 
       {7u, 0x57FBu, "TRAPcc.L (Trap)", "TRAPEQ.L"},
       {7u, 0xF27Au, nullptr, "cpTRAPcc -- not on the page"},
       {5u, 0x81FCu, nullptr, "zero divide"},
-      {6u, 0x4180u, nullptr, "CHK -- §11.6.16's, owed"},
+      {6u, 0x4180u, "CHK Dn,Dn (Exception Taken)", "CHK.W D0,D0"},
+      {6u, 0x4190u, "CHK EA,Dn (Exception Taken)", "CHK.W (A0),D0"},
+      {6u, 0x02D0u, "CHK2 Mem,Rn (Exception Taken)", "CHK2.W (A0)"},
       {14u, 0x4E73u, nullptr, "format error"},
   };
   for (unsigned c = 0; c < sizeof CASES / sizeof CASES[0]; c++) {
@@ -875,6 +885,16 @@ static void test_the_rows_that_are_not_single_word_are_classified_as_such(void) 
       {"RTE (Short Fault)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
        "change of flow"},
       {"RTE (Long Fault)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
+      /* §11.6.16's bounds checks: the exceptions' refill, and `CHK2`'s two
+       * words. */
+      {"CHK Dn,Dn (Exception Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "refill"},
+      {"CHK EA,Dn (Exception Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "refill"},
+      {"CHK2 Mem,Rn (No Exception)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "two words"},
+      {"CHK2 Mem,Rn (Exception Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT,
+       "refill"},
       {"Bcc (Taken)", AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "change of flow"},
       {"DBcc (cc False, Count Not Expired)",
        AP_M68030_PREFETCH_ALIGNMENT_INVARIANT, "it branches"},
