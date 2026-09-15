@@ -53341,3 +53341,292 @@ make.
 `tools/check_frontend_flags.py` — the flag parsed, the loop's cursor test, the
 reason it prints — because CI has no boot PROM and cannot reach the flag at all.
 `ctest` 147/147 on `linux-debug` and `linux-release`.*
+
+## The Domain/OS software shelf, read
+## (moved from COMPLETION_PLAN.md on completion, 2026-09-15)
+
+**Closed 2026-09-15: every one of the 100 shelf documents has a recorded
+basis.** Matching every filename against `docs/references/` finds all 100.
+Eleven are walked whole, and no record names a chapter owed.
+
+The item text below is kept as it stood when it was ticked. Its opening sentence
+describes the shelf as it was when the item was *opened*. Its "critical path"
+paragraph describes the DS5500 before it reached the Server Process Manager on
+2026-09-12, as recorded under "The DS5500 boots Domain/OS to the Server Process
+Manager (2026-09-12)" above.
+
+**The Domain/OS software shelf has never been read: 96 documents,
+80 of them still untouched.** `docs/references/SOFTWARE_SHELF_WALK.md` is the
+register. Twenty-two `*_WALK.md` records exist and every one says "walked
+whole, nothing owed" — and **every one of them is a hardware document**.
+No walk record covers a Domain/OS software manual, so an audit that
+counted walk records read as complete while four fifths of the shelf by
+page count had never been listed.
+**It is on the critical path, not housekeeping.** The DS5500 now boots
+Domain/OS, pages, runs a user process and makes system calls; where it
+stops is a `jsr (a0)` through the `A5` global-data pointer into a page a
+completed copy loop filled with zeros — which is a question about how a
+Domain/OS program's global data area and cross-module linkage are built.
+**`004977-02` *Binder and Librarian Reference* is walked whole, 118/118**
+(`004977-02_WALK.md`) — the first of the hundred, picked because it was
+the smallest that bore on the live question, and **it answered it and
+changed no code**: §4.4.1 and Appendix C's *Zero* attribute say a private
+per-process data section is zero-filled by the loader at process creation,
+at the same virtual addresses for every process, and initialised by the
+program itself on first access. So the zeros at `0091709C` are correct
+behaviour and the copy loop is that initialisation. It also gives the
+complete eight-group section attribute set, the 1,024-byte page stated two
+ways, the 3,072 sections-plus-marked-globals limit (2,048 before SR9.0),
+and two internal cross-reference errors.
+**`AEGIS_Internals_and_Data_Structures` is walked whole, 426/426
+(2026-09-15)** (`AEGIS_INTERNALS_WALK.md`; it was *in progress, all 426
+pages passed over — 7 chapters and Appendix A read in full, the rest
+condensed*). No code change; the finishing pass excluded the bound-in
+reverse-mapped MMU as the DN3000's DMMU and corrected the record's own
+Figure 9-1 table from the page image.
+**And the shelf is not finished.** The same day, matching all 100
+register filenames against the records found four documents that no
+record gave a basis for. Three are settled by scan in
+`CONTENT_TRIAGE.md`: `009496-00`, `009492-00` and `008856-00` Vol 1.
+**`009916-A00` *Planning Domain Networks and Internets* is owed a whole
+walk** — it is `RING.md`'s `[PLAN]`, cited by finding 9 and by
+`ap_ring_medium.h`, and its cable tables overlap `[MAC]` Table A-1. It is
+the one live reading on this item.
+**Walked whole the same day, 166/166** (`009916-A00_WALK.md`), with no
+behaviour change. Finding 9 had put a paraphrase in quotation marks; that
+is corrected in `RING.md` and `ap_ring_medium.h`. Table 3-1 is a second
+witness to `[MAC]` Table A-1. An AT node takes at most two ATR
+controllers, a configuration this core does not offer. It **confirms six findings this
+project measured off a running DS5500 and explains two of them** — the
+vector table is the PROM's trap page copied and relocated (§26.1.1), the
+service table is machine ID at `100`, auxiliary info at `102`, entry points
+from `104` (§26.2.2-4), the SAU number *is* the machine ID (§27.1), boot
+records occupy blocks 2-B (§27.1), and the firmware carries two stack bases
+because the PROM runs physical and mapped (§26.1.2). §9 gives both address
+space layouts, the 1,024-byte page for the third independent time, guard
+segments either side of the call stack, and what the 68040's `G` bit is
+*for*: ASID 0 is global space, marked by "a hardware global bit in the MMU
+hardware page tables". §21 **does not** answer `RING.md` question E and
+conflicts with `[MAC]` twice; `[MAC]` kept both times, nothing changed.
+§18 decodes the crash line field by field — the leading address is the
+frame's own, `FA`/`SW` appear "only on bus/address errors", and the `(B)`
+after the format word is the PROM's letter code, which `002398-04` gives
+as bus error. §18.2.2 depends on this core faulting a user-mode
+`MOVE from SR` so Domain/OS can no-op it, which `single_suite` already
+asserts. §19 explains why fifteen `TRAP` vectors are taken and not one:
+each trap number is a separate handler with its own dispatch table,
+indexed by the SVC number in `D0`.
+§4 settles the volume units: a disk block is **1024 + 32 = 1056 bytes**, so
+the DS5500's 4 KB page is four of them. The apparent conflict — labels of
+"a single disk block" each against four sectors each measured here — was
+settled against `media/dn5500-invol-done.awd`: sectors 0-3 all carry the
+canned UID `00000200` (the PV label's "200.0") and 4-7 carry `00000201`,
+with differing bodies, so **the labels occupy one page each and a page is
+four blocks**. The addressing unit followed the page size, which also turns
+§27.1's "physical disk blocks 2-B" into sectors 8-47 — the measured
+figure. §15 claims **every ISR runs at IL 6** — **checked 2026-09-12 and this core
+agrees**: `AP_INTR_CPU_LEVEL` is 6, measured in `FINDINGS.md` C12 by
+sweeping the CPU's mask because no hardware document states it, and every
+device reaches the CPU through the two 8259s. The one level-7 source is
+the parity NMI, which is not an ISR. §22's hardware type mask is the DN3xx/DN5xx
+`TMASK`, a third witness for `RING.md` findings 55 and 92 and no help to
+133b. A **second 56-page hardware manual is bound in at pp. 371-426** that
+the filename does not mention — DN330/DN560/DSP90 memory maps and a memory
+control/status register, none of it this core's hardware.
+**`014962-A00` *Design Principles* (157) is passed over in full**
+(`014962-A00_WALK.md`), and it is the one that describes **SR10** rather
+than SR9.0. It names the DS5500's stopping point: the pointer at
+**And `002398-03` p. 3-7 gives the structure that vector points at**, read
+2026-09-13: an **Entry Control Block** is `+00` a six-byte **JMP to the
+procedure**, `+06` a pointer to the data area, `+0A` five flag bits
+including "DB register not saved", `+0C` debug info. p. 3-4's calling
+sequence is `MOVE.L ECBADR,A0 / JSR (A0)` and then `MOVE.L 6(A0),DB`, so
+`jsr (a0)` jumps *into* the ECB and the callee loads its own data base from
+it. A zero in that slot is therefore not a zeroed function pointer but a
+missing ECB, and "points at a dynamic link snapper" is a statement about
+what sits at an ECB's `+00`.
+`0091709C` is a **transfer vector**, position-independent code puts "an
+extra level of indirection for each external procedure", the loader fills
+the vector in from the **Known Global Table**, and **an unresolved vector
+is supposed to point at a "dynamic link snapper" routine** which loads the
+library and patches the vector — not at zero. That is the first statement
+this project has of what the *correct* value would have been. Not acted on:
+never-patched, patched-into-an-uninitialised-page and patched-then-
+overwritten are three different bugs and nothing measured separates them.
+It also gives the KGT's three tables, the four address-space partitions,
+a **64 MB** virtual address space class `[AEGIS]` does not know (with
+"some DN3000" in it), and a fourth independent statement of the zero-fill
+rule.
+**`008862-01` *Assembler Reference* is passed over in full**
+(`008862-01_WALK.md`), read because `[AEGIS]`'s preface pointed at it.
+Appendix F gives the **object module format** field by field, and with the
+other three it completes the account: `[ASM]` §1.4 puts an
+externally-callable routine's entry point in the writable `DATA$` section
+(which is why the call is `movea.l d(a5),a0; jsr (a0)`), §F.5.6 has the
+loader **zero the section, then apply text records, then relocations**
+whose base ID may name a *global reference*, and `[DP]` says an unresolved
+vector points at a dynamic link snapper. **So a zero in that slot is one of
+three distinguishable things**, and §F.3's `OBJDMP` — a shell command the
+DS5500 already has — dumps exactly those records. That is the cheapest next
+measurement on this question and needs no new instrument.
+**`002398-01` Rev 1 is walked whole, 215/215, every page as an image
+(2026-09-15)**: no code change, and four witnesses -- 765 status bits,
+the Apollo II keyboard's ASCII codes and pointing escapes, the DUART
+clock-select table, the DN300's MSB-first node ID lanes -- plus
+siomonit's unrecorded 15-second removal rule (`002398-01_WALK.md`).
+*Until then: "Chapters 1-5 and 7 are owed as images."*
+**`[CFG]` and its July 1990 quick reference are read on their own terms
+(2026-09-15)**: every model's description and option pages and the
+upgrade section as images. Two page citations corrected (the overview
+table is A-12, the DN4500 summary D-109), `HSI Present` marked
+`PROVISIONAL`, the `dn3000` 68851 question sharpened -- p. H-4 makes the
+PMMU the DN3010 upgrade -- and no value changed (`CFG_WALK.md`).
+**14 of the 96 remain untouched**, and the rest are settled with their
+evidence: a second triage pass extracted **every remaining document's
+hardware-term matches with their context and read them**, which changed
+one verdict (the Pascal reference) and showed twenty-six documents contain
+no hard hardware term at all. The `Apollo_Price_List` turned out to hold
+**five per-model specification blocks** (`PRICE_LIST_WALK.md`) that agree
+with `ap_model.c` throughout, settle the DN3500 monitor question a third
+time, and **name two DN4500 features the table has no field for** — a
+64 KB physical cache and two-way interleaved memory, recorded on the row
+as a named gap with its cost to close, because both are timing features
+and the timing work is on the DN3500 where the oracle is. And a *language reference* turned out to
+hold a hardware source: `000792-A01` Appendix F is Apollo's account of the
+68040's floating-point trap, and its Table F-1 narrows Motorola's
+twenty-seven unimplemented instructions to the **eight** Apollo's
+compilers actually emit — `FSIN FCOS FTAN FATAN FETOX FLOGN FLOG10
+FINT/FINTRZ` — with the rest "never generated". A workload fact no
+Motorola manual can carry, and it says which eight come first. It also
+lands on this session's own finding: vector 11 carries FP emulation as
+well as the `PTEST` that killed the crash report, through the same handler
+at `7A42EDBC`. `CONTENT_TRIAGE.md`
+settled 16 by a full-text scan for the vocabulary a hardware fact is
+written in — and separated 7 brochures the scan *could not read*, which is
+the fifth time this session a check reported clean because it could not
+see. `ARCHITECTURE_1981_WALK.md` walked the shelf's oldest and densest
+document, 31/31: the ring's four out-of-band symbols kept their nine-bit
+shape across six years and **swapped meanings**, which changes nothing and
+would make a reader decode every control symbol wrongly.
+And `000959-10`, the shelf's densest remaining document, **gave the tape
+controller's wrong `218` a provenance**: Table 3-1 moved the drive from
+`218-21F` to `200-207` between June 1987 and July 1988, `008778-03` is
+August 1987, and this project had already reached `200` by arithmetic from
+that table's own physical column. The wrong value was once right.
+And the **January 1981 preliminary** carries one slide February dropped —
+`III.15 COMPILED OBJECT`, which states the two-part object format
+(position-independent code mapped directly, plus a loader database that
+builds the impure part) **six years before `[ASM]` Appendix F gives it as
+a byte layout**, and dates position-independent code to the design, and **`[CFG]` — the configuration guide
+the model table has cited since Phase 5 — had never been opened**
+(`CFG_WALK.md`). It supplied the DS5500 figure that was stale, and its
+Series 3500 block reads "Monitor: 19-inch, 1280 by 1024" against a DN3500
+row saying `1024x800` with *no citation*. The row is right — `Opt. FM2`
+"Requires option DM0", the 1280x1024 *controller*, and `008778-03` §11
+gives the family's monitors as 1024 x 800 at both sizes — and the field is
+now cited, because an uncited field in the reference row is what invites a
+plausible wrong change, and the
+first document read for its own sake — `000959-A00`, the SR10 GPIO driver
+manual — corrected the AT I/O window's mapping formula in two headers
+without changing any behaviour: `AT x 0x80` is the multiple-of-eight case
+of §3.1's "groups of eight bytes ... the first eight bytes of a different,
+but consecutive, page", and this project's own oracle traffic at `058002`
+already agreed with the manual rather than the formula.
+**And `018901-A00`, the SR10.4 release notes, corrected the model table**:
+the DS5500's memory ceiling was 32 MB from a configuration guide two years
+older than the machine, against 64 MB in the release note that introduced
+it. The same paragraph names the *purpose* of the I/O protection region
+this project placed empirically — "to support the 4-KB page I/O mapping of
+the MC68040".
+**The release-notes shelf** (`RELEASE_NOTES_WALK.md`) then closed a
+question the Design Principles walk had opened — a DN3000's virtual
+address space is 256 MB with PMMU hardware and 64 MB with DMMU, which is
+what `/etc/sys.conf`'s "some DN3000" means — named the FPA as a **Weitek
+3164**, gave `MD.md` the `UA` microcode-load command it lacked, and made
+the absence of handbook `007861` a documented fact: two Apollo manuals
+cite it by order number and revision and this shelf has only its
+addendum.
+Brochures, price lists and catalogues are listed and declared not worth
+walking, which is a judgement on the record rather than an omission.
+**And `008860-A03` *Installing Domain Software* is WALKED WHOLE,
+295/295, finished 2026-09-13.** 295 pages, scanned at 400 dpi with an Acrobat OCR layer,
+already cited by this plan for Table 1-1's SAU numbers -- so a document
+queried and never read, which is the shape `read-the-whole-document`
+names. Chapter 1 was read for the DN5500 item and gave three facts this
+project had been reconstructing by running the machine: `minst` starts
+automatically on login after booting from distribution media, it asks for
+one distribution cartridge at a time and only for those the chosen
+template needs, and it is re-runnable with `/install/tools/minst` without
+re-initialising the disk. **Chapter 3 is "a detailed description of the
+`invol` utility" and Chapter 4 the same for `calendar`** -- the two
+dialogues this project learned by running the machine, at the cost of a
+run each (`tools/dn5500/README.md`'s four corrections to `FINDINGS.md`
+C50, and the CALENDAR preamble in `install-sau14.cmds`). The page map is
+built and every chapter boundary is known; what is owed is the reading.
+**All 295 read.** Every page as an image — 600 dpi to PDF 255, 400 dpi
+after — because the OCR drops what this document is made of.
+**`002398-03` Rev 3 is WALKED WHOLE, 260/260, finished 2026-09-13**: a page map from all 260 footers; the ring packet's Early
+Acknowledge field bit by bit; the boot chain agent by agent;
+**`bat_$uid` naming `00000203`**; p. 2-10's rule that a logical volume's
+DADDRs are relative to its start — the `+1` `awd_read.py` had measured
+and could not explain; **five error codes this project diagnosed by
+measurement**, `00120020` among them; the **SYSBOOT error list** with the
+string the DS5500 printed; the **MD command set with meanings**, including
+`LD`, `STCODE` and `EY`; and chapter 6's **DTYPE class-and-drive** reading
+of the `0504` both volumes carry. Chapters 7 to 11 and the three appendices
+are **per-model registers for machines this core does not model** and
+were expected to yield nothing, though **chapter 8 found one anyway**: p. 8-38's `DELAY`
+bit turns `RING.md` finding 32 from a derivation into a statement —
+"an additional seven-bit delay into the length of the network ... to
+support the recirculation of the token, **which is nine bits**".
+**Chapter 9 found a second**: the DNx60 is "a micro-coded machine with a
+**forward-mapped address translation mechanism (using in-memory page
+tables)**" whose three-level walk carries a **global bit** and whose `MOVEC`
+control registers give a three-granularity TLB purge — Apollo had the
+68030/68040's MMU shape a decade early, which is the lineage `[AEGIS]`
+§9 and §11.2.3 are talking about.
+**Chapters 10 and 11 found no third defect and confirmed four things
+instead**, which is the result: p. 10-9 prints the **QIC-02 status
+bytes** with a decode table — an independent third witness to
+`device/ap_qic.h` from a document outside the OMTI family, every bit
+agreeing; pp. 10-17 and 11-8 print **the boot PROM's service table twice
+more**, `5 => stingray` and `3 => DSP80`, same eleven entries at the same
+offsets; p. 10-19's **"bit 11 of transmitter header count = 1 => data
+length = 0"** is the DN550's `CH1DIS`, matching `RING.md` finding 32b; and
+p. 11-8 states the DSP80 "uses **only the Signetics SC2681 DUART** (there
+is **no keyboard interface**)", which is why its vector `1A` reads
+"(Keyboard input)" in parentheses. The appendices are an ASCII chart
+whose `0E`-`14` carry Apollo's own display-manager names, powers of two,
+and the F.A.R. service codes — no register and no timing, and the parts
+lists confirm `DN550 (STINGRAY)` and `DN460/660 (TERN)`.
+**And chapter 7 establishes that Rev 4 reprints them**:
+five of its tables (the ring registers with `0014`/`0012`, the receive
+status's "before me" wording, `TMASK`, the SC2681 baud groups, the PROM
+entry points) are already in `RING.md`, `ap_mc68681.h` and the
+`prom-service-table` memory, every one cited to `002398-04`. So those
+chapters are expected to be **one witness printed twice** rather than new
+facts — which is worth knowing before reading them and is not a reason
+not to. Chapter 2 yielded a
+**route the ring item has been waiting for**: `DI N 0xxx` selects another
+node as the boot device and `EX DOMAIN_OS` boots the target **diskless**
+over the ring, so every page it executes crosses the cable — traffic with
+no shell, no `lcnode` and no `siologin`, which is what `FINDINGS.md` C229
+said was missing. It also states that **a net ID other than 0 hangs
+Domain/OS at the standard daemons**, names `crp -on`, `ctnode`,
+`lcnode -me` and `shutspm`, and fixes that **SR10.4 media is cartridge or
+magtape with a cartridge boot volume either way**. Detail in
+`docs/references/008860-A03_WALK.md`. **Chapter 7 gives the media's file layout** — file 1 the administrative
+objects, **file 2 always the release index**, later files the products,
+and a worked ANSI label (`Volume ID`, `Owner ID`, `File number`,
+`File section`, `File ID`, `File written`) — plus a second witness to
+the SAU table, `sau14 - dn5500`. Chapter 9 names the node's own
+install state (`install/baseline`, `not_installed`, `preserve.list`,
+`install/doc`) and labels the first product cartridge
+**`CRTG_STD_SFW_1`**. Chapter 11 states the media layout outright — all
+media in `wbak` format, **file 1 the administrative objects and files
+2..n the release indexes and products**, the Domain/OS release index
+always file 2 — and Chapter 10 gives the diskless precondition: **novice
+mode installs only the target's own `/sau`**, so other machine types
+cannot boot diskless from it. The glossary calls a node ID
+"unique, **unchangeable**, assigned during the manufacturing process".
+**Nothing is owed.**
