@@ -111,10 +111,41 @@ back cover. Pages 2-4, item by item:
 **Nothing for the core**, and one installer message and one crash status are
 now recognisable.
 
+## SR10.0 Beta 2, SR10.1 and SR10.2: the hardware-bearing sections, read as images (2026-09-15)
+
+Each document's contents pages were read whole and every section whose title
+could carry a hardware, boot, device, tape or floating-point fact was rendered
+at 250 dpi and read. The rest are named by their titles: shells, DM, fonts,
+registry, printing, mail, TCP/IP, NCS, X11, compilers, installation selection
+files and documentation changes.
+
+| Document, section | What it says | Against this core |
+| --- | --- | --- |
+| SR10.0β2 §1.3.11, SR10.1 §1.4.6 | full UNIX tty support "for remote login over SIO lines, as well as **siomonit and siologin**"; `/dev/sioX` and `/dev/ttyXX` are one device, except DCD is ignored on open through `/dev/sioX` | the DCD rule is a software fact the siologin thread (`FINDINGS.md` C222) can use; nothing in the core |
+| SR10.0β2 §1.3.25, SR10.1 §1.4.1 | the OS file is now `domain_os`, started with **`EX DOMAIN_OS`**; "DN5xx-T systems with FPX boards and with MD revisions earlier than 5.7 must still use `EX AEGIS`" | the boot command this project types; `MD.md` has it |
+| SR10.0β2 §1.3.26, SR10.1 §1.4.2 | `/etc/sys.conf` decides whether a library loads into global or user space, at initialisation or on first use, and whether it is optional | the file `014962-A00_WALK.md` reads the `not_64mb_va` flag from |
+| SR10.0β2 §1.3.30, SR10.1 §1.4.16 | `` `node_data `` gains `system_logs`, `systmp` and `etc` | where siomonit's log would sit |
+| SR10.0β2 §2.1 | SR10 drops DN100/400/420/600, needs **2 MB** minimum, 500 KB free disk per user process | every modelled machine exceeds it |
+| SR10.0β2 §2.4 | **SR10 changes the on-disk structures**: a disk must be re-`invol`ed before SR10 is installed, and no SR10 volume mounts on a pre-SR10 system | **the reason `002398-01` and `002398-03`'s VTOC entry does not describe an SR10.4 volume** -- the change `002398-01_WALK.md` dated to "some point after Feb 1985", now dated to SR10 |
+| SR10.1 §1.4.3 | paging statistics redefined: data-file and executable faults count pages read from disk or network, touch-ahead included, zero-filled pages and sharing faults excluded | the `netstat -l`/`pst` counters the two-node runs read (C294) |
+| SR10.1 §1.4.14 | `netman` runs `/sys/net/netman.rc` when a remote node boots diskless | the diskless route `008860-A03_WALK.md` records |
+| SR10.1 §2.2 | cartridge tape: SR9.7 writes an explicit end-of-tape marker, SR9.7.1 and later do not; a "hybrid" tape added to under SR10.1 cannot be read past that marker by SR9.7; `wbak` may write only at file 1 or after the last file, else `cannot write at this tape position (library/tfp)`; "read no data (OS/cartridge tape manager)" ends an index scan | **software rules above the `ap_sc499` drive**, consistent with `[SC499]`'s write-only-at-end behaviour; recognisable messages |
+| SR10.1 §2.7, SR10.2 §1.8.1 | the `fpp_$` service routines: rounding, trap enables, IEEE underflow, accrued exceptions "in 881/fpa/fpx/dn10000-based machines", and `fpp_$set_mc68881_precision_mode` -- extended, single, double, reserved -- "no effect on any other Apollo machine" | the four precision-mode values are the 68881/68882 FPCR's rounding-precision field in its own order; the FPU model is walked whole (`M68881_WALK.md`) |
+| SR10.1 §2.8.1 | SLIP "must use SIO 1 on nodes which have more than one serial line" | none |
+| SR10.2 §1.4.1 | the Series 2500: 20 MHz 68030, 4-16 MB, 100/200 MB internal disks, external CTAPE, 15" 1024x800 or 19" 1280x1024 | the `DN2500` row |
+| SR10.2 §1.4.2 | **the DVS is a 1280x1024 controller, 8- or 40-plane, "a 2-board set that consists of a Transform Processor board connected to an ... Array board", using two AT slots**; 8-plane on DN3500/3550/4500, 40-plane on DN3550/4500 | agrees with `[CFG]` p. H-15 and `5952-2149` p. 10's HSI ribbon; no DVS is modelled |
+| SR10.2 §1.4.3 | first major release to include the WD Multifunction Peripheral Controller, the SCSI 8 mm, ½" reel and ¼" cartridge drives and the 70 Hz monitor, previously in PSKs | the SCSI stack `ap_wd7000`/`ap_exb8200` runs under SR10.4 |
+| SR10.2 §1.4.4 | `scsi_$` for user SCSI drivers, ANSI X3.131-1986, through GPIO | none |
+| SR10.2 §4.1.5 | **"any of the 3 SIO lines on a Series 2500"**; its UARTs tolerate less baud-rate error, 1220 against 1200 fails, two stop bits tolerate over 5% | a DN2500 has three SIO lines; no DN2500 serial timing is modelled |
+
+**Nothing for the core**, one dating (the SR10 on-disk format change) and one
+confirmation of the DVS as an HSI-attached two-board set.
+
 ## What is owed
 
-SR10.0 Beta 2 and SR10.2 beyond their indexes, and everything in SR10.1 outside
-§2.1. *The addendum was read next (above); this also listed "the five-page SR10.4
+**Nothing hardware-bearing.** *The three documents' hardware sections were read
+next (above); this said "SR10.0 Beta 2 and SR10.2 beyond their indexes, and
+everything in SR10.1 outside §2.1."* *The addendum was read next (above); this also listed "the five-page SR10.4
 addendum — which has **no text layer** and is therefore five renders, the
 cheapest scanned document on the shelf and the one closest to the release this
 project runs."*
