@@ -4628,6 +4628,22 @@ substance. They are the only items here with no route that is simply work.
       Reopens on contact. *Verification: `check_docs` exit 0; the filename match
       finds all 100. Detail in `PROJECT_STATUS.md`.*
 
+- [x] **The `PROVISIONAL` register re-audited by enumeration, and it had drifted
+      by sixteen.** The 2026-08-22 audit sampled and held; a sample cannot find an
+      entry that is in the source and in neither other place. Reading all 124
+      mentions across 51 files found **sixteen figures that were rows nowhere** --
+      the EXB-8200 reposition range, two SC-499 delays, the ASC's two diagnostics
+      and its IRQ strap, both dot clocks, the ring PLL interpolation and driver
+      peak, the OMTI buffer, the uPD765 reset interrupt, the keyboard buffer, the
+      acknowledge cycle, the 68882 calculation time, `PFLUSH`, the 68040 line
+      fill -- and **two rows stale the other way**: the 68882 microcode version
+      (closed in code 2026-09-07) and the SC-499 row's "all nine" against
+      thirteen constants. Now 33 rows, plus an index of the 29 readings that are
+      not figures and so had nowhere to be listed. Every one carried its reason
+      and cost to close at its own site throughout -- the index drifted, not the
+      work. *Verification: the enumeration is reproducible; `check_docs` exit 0.
+      Detail in `PROJECT_STATUS.md`.*
+
 - [x] **A finished console script can end its run.**
       `--boot-stop-on-script-end`. The disk image is written once, at exit, so
       a run that has finished its work cannot be killed without losing the

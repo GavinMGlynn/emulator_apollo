@@ -9276,6 +9276,42 @@ implemented, and `QIC-02` has none. Recorded so the sweep is not repeated.
 
 *Verification: documentary; no code changed; `ctest` 139/139.*
 
+### Re-run 2026-09-16: it did **not** hold, and the sampling is why
+
+The audit above sampled — "every one sampled traces to its counterpart" — and a
+sample cannot find the entry that is in the source and in neither other place,
+because such an entry is not in the sample frame. Re-run by enumeration instead,
+reading all 124 mentions across 51 files in one pass: **sixteen figures were in
+the source and were not rows**, six of them named nowhere but their own header,
+and **two rows had gone stale the other way** — the 68882's microcode version,
+closed in code on 2026-09-07, and the SC-499 row's "all nine" against thirteen
+constants answering three questions. All are corrected in the PROVISIONAL table.
+
+**The 2026-08-22 entry's own recommendation was the fix and was not taken.** It
+said keying each marker "would make it checkable, and is a change worth weighing
+against the churn of retrofitting seventy-three of them", and named it as the
+user's call. Left unkeyed, the class drifted a second time within a month, and
+the retrofit is now 124 sites rather than 73 — the cost of deferring it went up
+by two-thirds while the thing it was deferred against did not change.
+
+**What was and was not broken, stated separately**, because they are different
+claims and only one of them matters for whether this core is trustworthy. Every
+one of the sixteen carried its reason and its cost to close *at its own site*,
+in the header comment, written by whoever put the figure there: the substance of
+`CLAUDE.md`'s rule — a deliberate approximation is documented, with reason and
+cost to close — held without exception. What failed is the **index**, and the
+index is what a later reader who does not already know the figure exists depends
+on. A reader auditing this core from the register would have been told there were
+eighteen approximations when there were thirty-three.
+
+The non-figure readings now have an index of their own beneath the table, for
+the reason the drift exposed: a reading that is a layout or a polarity rather
+than a number had nowhere to be listed under the old scoping, so it was listed
+nowhere and no count could ever catch it.
+
+*Verification: documentary; no code changed. The enumeration is reproducible —
+`grep -rn PROVISIONAL src/ --include=*.h --include=*.c` against the two tables.*
+
 ## The one claim nothing checked was the one that drifted
 ## (2026-08-22)
 
@@ -21261,6 +21297,25 @@ adjective above.
 At the time of writing: **18 rows, each with a plan item, and no `PROVISIONAL`
 figure in `src/` outside them.**
 
+***Re-run 2026-09-16, and it had drifted again — by sixteen.*** The claim above
+stood for a month while four subsystems landed, and the count is what caught it:
+124 `PROVISIONAL` mentions across 51 source files against 18 rows. Sixteen
+figures were in the source and in none of them a row, six of those named nowhere
+but their own header, and **two rows had gone stale in the other direction** —
+the 68882's microcode version closed on 2026-09-07 when §6.4.2.2's NOTE turned
+up, and the SC-499 row still said "all nine" where there are now thirteen
+`AP_SC499_T_*` constants answering three different questions. The sixteen are
+rows below and the two are corrected; the register is **33 rows** — 18 less
+the retired one, plus sixteen.
+
+*The cause is the one the cross-reference audit named and did not act on*: a
+figure is marked at its own site by whoever writes it, and nothing walks the
+other two places. Every one of the sixteen carried its reason and its cost to
+close **in its header comment** — the substance of `CLAUDE.md`'s rule was never
+broken — so what drifted is the index, which is exactly the half a later reader
+depends on. The non-figure readings are now indexed below the table for the same
+reason.
+
 The plan names several of them in its own words rather than this table's — the
 MC146818A rates appear as "whether to recompute the time base to admit the six
 fast rates", the SC-499 handshake as its `§1.13.2` figures — so a literal search
@@ -21277,20 +21332,99 @@ phrase.
 | 68030 stack frame INTERNAL REGISTER words | written as zero, in the bus fault frames (`$A`/`$B`) and now in the coprocessor mid-instruction frame (`$9`) | Table 8-6 names the fields but gives them no defined contents — they hold microsequencer state, and this model has none to save. Written rather than skipped, because a frame that left them holding whatever the stack already had would hand a handler the previous program's data under a documented field name. Zero is a stated value; a skipped word is an unstated one | Only a microsequencer model closes it. What it costs today is bounded and named: an `RTE` from format `$9` is declined rather than resumed, since resuming is exactly what those words are for |
 | 68851 root pointer table | **Not implemented.** §5.3's eight-entry cache of recently-used `CRP` values with a task alias each. A `PMOVE` to `CRP` takes the conservative branch instead: it flushes the current task's ATC entries and sets `PCSR`'s `F`, which is what a replacement would do when the table holds one live alias | The RPT is a *performance* mechanism -- "the root pointer caching and task alias maintenance performed by the RPT allows translation descriptors for multiple tasks to reside in the ATC simultaneously". Without it every task switch flushes, which is slower than the hardware and never wrong: the entries flushed are exactly those a real replacement could have invalidated, plus some it might have kept. No translation returns a different physical address; only the hit rate differs | Implement §5.3's eight-entry RPT with its own replacement, and let the task alias vary. Needed before any ATC hit-rate measurement is meaningful, and before a probe could compare ATC occupancy against the oracle. Does not affect correctness of any single translation |
 | 68851 `U` and `M` write-back | **Implemented and wired.** A search returns the path of descriptors it read; `ap_m68851_status_writes` produces the byte cycles §5.1.5.3.11's table calls for; and `ap_m68851_translate` and `ap_m68851_pload` drive them through a `store` callback so the bits reach memory. The status byte is the fourth of the descriptor in both formats -- `U` is bit 35 of a long descriptor and bit 3 of a short one, `M` bit 36 and bit 4, and in each case that is bit 3 and bit 4 of `address + 3` | No longer provisional. Four readings, each sourced. **A descriptor already carrying the right bits produces no cycle**: the part "only performs write cycles to modify these bits are required". **The cycle type is specification**: a read-modify-write "whenever it is required to set the used bit but not affect the state of the modified bit", so two MMUs sharing a tree cannot lose each other's `M`; pointer descriptors, which "do not contain modified bits, are not referenced using read-modify-write sequences". **The path survives a fault** -- "a pointer may be fetched, and its U bit set, for an address to which access is denied at another level of the tree". And **`PTEST` must not write at all**: "U and M bits in the translation table are not modified by this instruction", where `PLOADW` updates "as if a write operation to that address had occurred" and `PLOADR` as if a read | Closed. `ap_m68851_ptest` takes no `store` parameter, so a probe *cannot* mark a page used -- the omission is how the manual's rule is enforced rather than merely documented. Two judgements remain readings rather than quotations: the descriptor that *causes* a denial is not marked (the manual covers the pointers above it and is silent on it, and `U` exists for page replacement, which an invalid descriptor has no part in), and a `NULL` store leaves the tables unchanged for a caller with no write path |
-| SC-499 command handshake timings | the documented bounds | `[SC499]` §1.13.2 publishes *bounds*, not values — "0 us < T3->T4 < 150 us" says the device hands the bus back within 150 microseconds and nothing about when. Modelled at the bound, so every handshake runs at its slowest permitted speed: wrong in a knowable direction and by a knowable amount. All nine convert exactly to base units, so none is rounded on top of being provisional | Measure edge timings against a running drive, which needs the oracle's tape path exercised; small. Affects only a driver watching for the edges themselves — a polling driver cannot observe the difference |
+| SC-499 command handshake timings | the documented bounds | `[SC499]` §1.13.2 publishes *bounds*, not values — "0 us < T3->T4 < 150 us" says the device hands the bus back within 150 microseconds and nothing about when. Modelled at the bound, so every handshake runs at its slowest permitted speed: wrong in a knowable direction and by a knowable amount. All of §1.13.2's convert exactly to base units, so none is rounded on top of being provisional. *Said "All nine" until 2026-09-16; there are thirteen `AP_SC499_T_*` constants and they answer three questions, not one — this row is §1.13.2's handshake set, bounded from **above**, and the block-boundary and reset-to-EXCEPTION rows below are the other two* | Measure edge timings against a running drive, which needs the oracle's tape path exercised; small. Affects only a driver watching for the edges themselves — a polling driver cannot observe the difference |
 | 68030 asynchronous input synchroniser | two clocks, giving a three-clock `BR`-to-`BG` grant latency | `[030]` §7.7.4 publishes a bound and not a value: "all asynchronous inputs to the MC68030 are internally synchronized in a maximum of two cycles of the processor clock". The actual delay depends on where the input edge falls relative to the clock, so it is genuinely a range and one clock is as legal as two. **Narrowed by the electrical specification**, which the user's manual defers to and which was not on disk until it was fetched: `MC68030EC/D` p. 7, parameter 35, "BR Asserted to BG Asserted (RMC Not Asserted)" is **1.5 to 3.5 clocks**, identical at 20 through 50 MHz, and parameter 37 gives the same window to BGACK-to-BG-negated. A two-clock spread between min and max is one synchroniser's worth of uncertainty — the specification agreeing this is a range rather than a figure withheld. Our three clocks sit inside it, and so would the two-clock alternative | **Not measurable against the oracle, and the previous entry here was wrong to say so**: MAME's 68000 family models no bus arbitration at all — no `BR`, `BG` or `BGACK` anywhere in `ext/mame/src/devices/cpu/m68000/` — so no second master in that emulator could ever produce a grant to time. What remains is sub-clock phase, which nothing clock-stepped represents. Closable only from hardware, or by accepting the published envelope as the answer; `arb_suite` now asserts we stay inside it |
 | MC146818A periodic interrupt, six fastest rates | not modelled | `[146818]` Table 5's rates are 32768/2^n Hz. `AP_TIME_BASE_HZ` factors as 2^9·3^2·5^8·11, so 1.024 kHz through 32.768 kHz are not exactly representable and `ap_clock_init` refuses them. Not an approximation — the nine slower rates are exact and implemented, and the fast six are reported unsupported rather than rounded | Recompute the time base: including 32.768 kHz costs a factor of 64 and drops the representable span from 29.5 years to 168 days. Including the part's own 4.194304 MHz crystal would cost 8192x and leave about a day and a third, so the crystal can never be a clock domain in a 64-bit base at all. Cheap to do, and deliberately not done while nothing is observed using those rates |
 | 68030 long bus fault frame's internal registers | Stacked as **zero**. This model has no microsequencer state to save, so the fields Table 8-6 labels INTERNAL REGISTER are written rather than skipped — a stated value, where a skipped word would leave whatever the stack already held | `[030]` Table 8-6 | An `RTE` resuming a fault *mid-instruction* cannot work from a zeroed frame |
 | 68030 full-format effective address rows: which of §11.6.1's two groups an encoding selects | A **word** base displacement is free when the base is a register and costs 2 clocks when it is suppressed; a long one is never free | §11.6.1 publishes its full-format rows in two groups, one written `d16,An` and one written `B` — and its own footnote defines `B` as "0, An, PC, Xn, An + Xn, PC + Xn. Form does not affect timing", which makes the groups overlap and contradict: `(d16,An)` is 6 clocks and `(d16,B)` is 8. The reading is what makes the table consistent — **every** group A row equals its group B row with the base displacement dropped, all eight with no counterexample — and the head column agrees independently, 2 for the free rows against 4. `MC68020 User's Manual` §9.2.1 corroborates from outside: the same table with the same footnotes and *no* `d16,An` group at all, its `(d16,An)` costing 2 more than its `(B)`, so the free displacement is a 68030 addition. Strong, and still a reading | Three readings through `steptime.lua`: a full-format `(d16,An)` with the index suppressed, the same with it present, and a null base displacement as a control both readings agree on — so a disagreement there means the transcription is wrong rather than the mapping. Small, and the harness exists. Affects every full-format effective address by up to 2 clocks, never the address it computes |
-| 68882 microcode version number | a stated non-zero choice, carried in every `FSAVE` state frame's format word | "The version number is an 8-bit value that identifies the microcode version of the FPCP, and **the format of this number is defined internally by the FPCP**" -- so no manual publishes a value for any part and there is nothing to transcribe. The only property the documents make observable is self-consistency: `FRESTORE` must accept what `FSAVE` wrote, and version 0 is the wild card that must be accepted whatever the part reports. Both hold for any non-zero choice, which is exactly why the choice is unconstrained rather than merely unknown | Read it from a real part, or instrument the oracle and read back the format word MAME's 68882 writes. Cheap either way, and worth doing only if some firmware is found to test the field rather than round-trip it |
 | 68882 idle state frame's internal words (CU internal registers, operand register, BIU flags) | written as zeros | The same reason the 68030's stack frames give: this model has no microsequencer state to save, because its part never suspends mid-instruction. They are *written* rather than skipped so that a handler cannot read the previous program's data out from under a documented field name -- a zero is a stated value, uninitialised memory is not | Only reachable by modelling the coprocessor dialog at the CIR level, which would also be what produces a busy frame. Nothing observable depends on it until then: `FRESTORE` ignores these words on the way back in, so the round trip a program can see is already exact |
 | Apollo AT map: which entry a byte address selects | `(address - base) / 2` | Neither `008778-03` nor the `019411-A00` addendum says. The region `017000`-`0177FF` is 2 KB and 128 entries of 16 bits fill 256 bytes of it, so most of the window is undescribed; the assumed indexing is the only reading with no gaps. Pinned by tests so it cannot be closed by accident | The oracle answers it, and already disagrees on the neighbouring question -- see the open plan item, which carries both halves |
 | AT-compatible bus cycle times: which appendix a DS3500 keeps | `008778-03` Appendix A, the Series 3000 set — 6 MHz bus clock, so a 666 ns AT memory read, 500 ns write and 750 ns 8-bit I/O command | The manual's preface scopes it: "This document supports the Domain Series 3000 (DS3000) and Series 4000 (DS4000) systems". Our reference machine is a DS3500, and `019411-A00` — the addendum that does cover it — publishes no bus cycle times at all, nor does either engineering handbook on disk. What *is* pinned is the bracket, and it is narrow: the two published sets are 6 and 8 MHz bus clocks, every figure reduces to the same number of bus clocks in both, and the only row that differs is the memory read — four bus clocks against three. So the uncertainty is one bus clock on one cycle type, not an open range | A DS3500 hardware reference giving its BUS CLOCK, or an oracle measurement of an access to an AT device. Medium: the board-backed probe path exists, and MAME's ISA timing would need checking before its answer could be trusted. Affects how long every AT device access takes and nothing about what it returns |
 | DN2500 RAM base | `0x4000000` — **corrected**, was assumed `0x1000000` | Derived from the Series 2500 boot PROM's own reset vector, exactly as this row's cost-to-close said to: `2500_BOOT_16182_8` starts with SSP `040007D0`, where `3500_BOOT_12191_7` starts with `01000180` and its RAM is at `01000000`. A reset stack pointer must land in usable memory, so the DN2500's is at `04000000` and the assumption that it matched the other 68030 models was wrong | Still `PROVISIONAL`: the reset SSP proves memory exists *there*, not where the region begins or ends. A Series 2500 allocation table would settle the extent; the oracle cannot, having no 2500 driver |
+| EXB-8200 reposition time | `1,082 ms`, the minimum of the published range | `[EXBPS]` §3.4 gives "1,082 to 1,115 ms" — a range with no typical in it. The minimum is charged because the midpoint would be an invention, which is `CLAUDE.md`'s rule for a quantity published as a range. 33 ms of spread on a command the guest issues between file sections | Measure a real drive, or find a service manual giving a typical. Small. Affects how long a reposition takes and nothing it returns — the `wbak`/`rbak` round trip cannot discriminate, since both ends poll |
+| SC-499 block-boundary READY delay | `100 us`, `AP_SC499_T_BLOCK_TO_READY_MIN` | `[SC499]` Figure 1-5's T4 and T15 give `100 us. <` — a ***minimum***, so taking the bound models the fastest drive the specification permits. **The opposite direction from the handshake row above**, which is bounded from above and therefore models the slowest: the two err in opposite directions and are separate questions for that reason | Edge timings against a running drive, with the oracle's tape path exercised. Small. Only a driver watching for the edges can observe it, and Domain/OS polls |
+| SC-499 reset-to-EXCEPTION delay | `200 ms`, `AP_SC499_T_RESET_TO_EXCEPTION` | **Adopted, not published — the one figure here with no document behind the number at all.** *That* the controller reports power-on reset by asserting EXCEPTION is protocol rather than guesswork: Linux's `tpqic02.h` defines `TP_POR` as a status bit a host obtains with READ STATUS, which is what it issues in response to an exception, and Domain/OS corroborates by waiting for status `57`. What no source gives is how long after RSTSAC. The value only has to fall inside the driver's window — after its first poll sees `F7`, before its second poll's 131 M-iteration timeout — which is far too wide to pin a number | The QIC-02 standard's own figure, or hardware. Small. Marked at its site so it cannot be mistaken for a measurement |
+| WD7000-ASC diagnostic durations | short `250 ms`, long `2 s` | `[WD7000]` §6.2.14.1: "short diagnostics complete in under 250 ms" — a bound. §5.1.1: "on-board diagnostics run for **about** 2 seconds" — an approximation. Neither is a value, and both are taken at their stated figure | Measure a real ASC. Small. Affects how long a DS5500 SCSI reset takes; `scsi14.drvr` polls and cannot see the difference |
+| WD7000-ASC interrupt strap | `IRQ5`, the cartridge tape's line | `[WD7000]` §7.4.4 lists ten lines `W1`/`W2` can select and the part's own standard is `IRQ3`; `008778-03` Table 2-3 gives `IRQ5` to "Tape Drive or User Device". Nothing on either shelf says what an **Apollo** card straps. Taken as the tape's because the card sits in the tape's slot at the tape's address, so the exchange `--scsi` performs does not move the line | An Apollo SCSI card or its installation note. The round trip cannot discriminate: the driver enables one line and receives it |
+| Colour monitor dot clock | `68 MHz`; Table 11-4 implies 67.899 MHz | 1344 x 50520 is 67.899 MHz and does not divide `AP_TIME_BASE_HZ`; 68 MHz does. The cost is **0.15%** — a 50.595 kHz line against the printed 50.519 and 60.09 Hz against 60.0 — and both stay inside Table 11-3's stated bands, 50.2 kHz ± 500 Hz horizontal and 47 to 80 Hz vertical. Table 11-4's own 50.519 kHz sits in the same band, which is how the two tables are known to agree rather than assumed to | Recompute the time base, which changes the unit of account for every clock in the machine and no behaviour. **Deliberately not done**: 0.15% on one monitor does not justify moving every figure in the machine |
+| 19-inch monochrome dot clock | `120 MHz`; Table 11-8's 8.47 ns pixel implies 118.06 MHz | The two differ by 1.8%, which propagates to the frame rate as 64 Hz against 65.14 — and §11's own prose calls the monitor "60-Hz", which matches neither. The oracle's figure is taken because 118.06 MHz does not divide the time base and 120 MHz does exactly, at 2805 units; the manual's is recorded at the site because it is the one with a document behind it. The rest of the raster is the manual's to the pixel — `h_total` 1728 and `v_total` 1066 both derived from the printed porches | A measurement against a real monitor, or a source stating the clock rather than the pixel time. Affects the frame rate, not what is drawn |
+| Ring PLL phase offset interpolation | linear between `[MAC]` §3.3.1's two endpoints, clamped outside them | The manual gives two endpoints and the word "linearly", so what happens between them is documented rather than measured, and the ring has no runnable oracle to check it against. Clamped rather than extrapolated because §3.3.1 says "or less"/"or more" outside the interval. `RING.md` question D | A ring analyser, or a third published endpoint. Nothing in this machine reads it today |
+| Ring driver peak output voltage | `±2.5 V` peak | Read off `[MAC]` Figure A-1's plotted curve rather than stated in text. It is what resolves §3.4's parenthetical against its own dBm figure: ±2.5 V as a square wave into 75 ohms is 19.2 dBm, which is the stated "approximately 18", where §3.4's literal "2.5 V peak-to-peak" would be ±1.25 V and 13.2 dBm. So the parenthetical is a slip and the dBm figure is the reliable one — but the peak is still read off a curve, to within the manual's own "approximately" | A stated figure, or a measurement. **Costs nothing today**: these are cable figures and nothing in this core is driven from them |
+| OMTI 8621 sector buffer size | `32K`, reported as `0xC0` in the identification block | The only published family figure is 8K, in an error description generic to four models. **And the encoding differs between the manuals**: `[OMTI]` doc 5-14 reads `1-1` as 32K where `[8000]` doc 5-13 reads it as 64K, so the value is ambiguous *between documents* as well as unsourced — and `[OMTI]` contradicts itself, an 8K minimum in §1.1 against a 2K row in §5.4.13. `[OMTI]` is followed because the part is an 8621 and that is the 862X manual. The oracle writes the same `0xC0` with the same bare comment, which is two readings of one table rather than two witnesses | An 8621 identification block read off hardware, or an Apollo document naming the buffer. **The boot cannot discriminate**: the PROM's Winchester test reads bytes `10`-`13` and never looks at `14` |
+| µPD765 reset-to-ready-change interrupt | `1.024 ms` | Two published figures and no way here to tell which silicon the board carries. `[765A]` gives "1-25 ms", a bracket; `[765AB]` gives 1.024 ms, a point — and it is *exactly* that document's own drive-polling period, "each drive is polled every 1.024 ms", so it reads as the derived value the bracket was hiding rather than as a second measurement. The later revision's is taken | Identify the part on an Apollo board, or measure. Small |
+| Keyboard buffer depth | `16 bytes` | `008778-03` §12.2: "The keyboard buffers **at least 16 bytes**" — a floor, not the part's depth, so a keyboard with more is conformant. Choosing the floor errs in the safe direction: this core inhibits no later than the hardware does, so it never accepts a keystroke the part would have refused | The keyboard's own specification, which this project does not hold. **Nothing observed reaches the limit**, so the cost is currently zero |
+| Interrupt acknowledge cycle wait states | `2 clocks`, the read "all timing data assumes" | §11.6.17's interrupt rows count two reads: the vector's, which this core runs on the bus, and the acknowledge cycle, which the acknowledge callback answers without one. No board here reports an acknowledge's wait states, and an autovectored cycle is terminated by `AVEC`, whose timing is not this read's | A board that answers the acknowledge on the bus, which needs the acknowledge to become a bus cycle. Affects every interrupt's cost by the difference between two clocks and the board's real answer |
+| 68882 calculation time | Table 8-3's `FPn to FPm` column, one point value per operation | **The same shape as the 68030's `+` rows and it was not marked here.** Tables 8-14 and 8-15 give the calculation phase per *operand type* — a zero source to `FADD` costs 2, an infinity 6, a NAN 28 — where Table 8-3's column is §8.5.1's typical case, "input operands are assumed to be normalized numbers in the legal range for a given function". A program feeding zeros and infinities runs faster on the real part than this model says | Compose Tables 8-14 and 8-15's per-type adjustments onto the typical column. Medium, and blocked on nothing but its own turn. Affects how long an operation takes, never its result |
+| 68040 `PFLUSH` clocks | none charged; the instruction costs its bus time alone | Neither `M68000PRM`'s page nor `[040]`'s timing section publishes a figure. What the manual says about cost is "an undetermined number of bus cycles", and that is said about the **EC** parts, which have no MMU at all. Inventing a point number is what this project's timing rule forbids, so nothing is charged and the gap is stated | A 68040 timing figure, or a measurement. Affects how long a flush takes; Domain/OS flushes on every task switch, so it is not rare |
+| 68040 cache line fill burst | the TBI case — three sequential long-word reads at §7.4.2's eight clocks, against a burst's five | This memory never acknowledges a burst, and **whether a DS5500's memory boards do is on no document held**. p. 4-3's "the cache recognizes burst accesses as if the access were never inhibited" is what makes the non-burst path correct rather than merely available, so the model is right for the memory it has and unproven for the machine's | A DS5500 memory board specification. Affects every line fill's time by three clocks, never the data the line holds |
+
+### The `PROVISIONAL` readings that are not figures
+
+Added 2026-09-16 with the re-audit. The table above is scoped to *figures* —
+"every quantity that was chosen rather than transcribed" — and that scoping is
+what let sixteen of them drift out of it unnoticed, because a reading that is a
+layout, a polarity or a modelling choice had nowhere to be listed and so was
+listed nowhere. They are all marked at their own sites with their reason and
+their cost to close; what was missing is a place to count them from.
+
+**This list is the index, not the account** — each entry's reasoning lives in the
+header named beside it, which is where it is maintained. Its job is to make the
+next audit a filename match instead of a re-read of 51 files.
+
+| Reading | Where it is argued |
+| --- | --- |
+| Bus-master AT map window: 512 KB as software policy or as index width | `board/ap_atmap.h` |
+| Series 2500 control block `0202CC`-`0202D4`: modelled as storage, meaning unknown | `board/ap_board.h` |
+| DS5500 `011500` block: modelled as storage; the oracle's "reads answer `FF`" is the rival | `board/ap_board.h` |
+| Token recirculation modelled as **cable** delay, not as p. 8-41's `DELAY` bit | `board/ap_board.c` |
+| Cache status register bits 7:5 and 2:1 read all-ones (undriven bus) | `board/ap_boardreg.h` |
+| `HSI Present` derived from a fitted display, where a DVS board-set is what the connector is for | `board/ap_boardreg.h` |
+| Status register bit 15 always set — a DN3500 probe against `002398-04` p. 12-26's DN3000 `0` | `board/ap_boardreg.h` |
+| Cache condition-code word layout: valid bit and tag shift | `board/ap_cacheram.h` |
+| The meaning of a byte in the DS5500 I/O protection map | `board/ap_ioprot.h` |
+| Which parity lane bit is which byte of the longword | `board/ap_parity.h` |
+| READ FILE MARK ends in READY where `QIC-02` §4.2.9 sets EXCEPTION | `board/ap_tape.c` |
+| Access-error frame's `WB1`/`WB2`/`WB3` status words written zero (no write-back queue) | `cpu/m68030/ap_m68030_step.c` |
+| Long-frame `RTE` re-executes the instruction rather than resuming mid-instruction | `cpu/m68030/ap_m68030_step.c` |
+| `MOVEM` wait states added as measured bus time, not by §11.6.7's own footnote | `cpu/m68030/ap_m68030_timing_table.c` |
+| Six redundant `F`-line aliases decoded by a rule corroborated on their neighbours | `cpu/m68882/ap_m68882_decode.c` |
+| 3C505 adapter status flags as a host-side stand-in for the card's 80186 | `device/ap_3c505.h` |
+| Mouse Mode 3 absolute button polarity — Figure 13-7 prints no legend | `device/ap_kbd.h` |
+| Floppy `ST3` bit 4 "ready": the vendor's own name contradicts its description, so nothing is driven | `device/ap_omti.h` |
+| The configuration byte's jumper framing — §2.3's table is a BIOS convention | `device/ap_omti_cdb.h` |
+| `XMIT_STAT` tag bits as the transmit counters' OUT pins (`RING.md` 145i) | `device/ap_ring_ctl.h` |
+| `RCV_STAT` 2:0 glosses read as naming counters, not pin levels (`RING.md` 145h) | `device/ap_ring_ctl.c` |
+| The card's DMA transfer is instantaneous, where hardware spreads it over the bit clock | `device/ap_ring_ctl.c` |
+| The receive header counter's three-character shortfall modelled as the frame-start sequence | `device/ap_ring_ctl.c` |
+| A `6` command completes an operation and clears the two bits the firmware waits on | `device/ap_ring_ctl.c` |
+| Transmit completion immediate until the station drives it (`RING.md` 66, 73) | `device/ap_ring_ctl.c` |
+| The 68040's transparent translation registers carry no limit fields | `machine/ap_machine.h` |
+| The host stands in for a part that is not driving the protocol | `machine/ap_machine.c` |
+| `[MAC]` §2.2.2.4's reading, which the section does not state outright | `ring/ap_ring_frame.h` |
+| The station's stripping timeout, the only one the manual gives | `ring/ap_ring_station.h` |
+
+**Three files say `PROVISIONAL` and name no approximation at all**, and always
+will: `model/ap_model.h` *states the rule*, `time/ap_time.h` points at the model
+clocks, and `frontend/common/ap_frontend.{c,h}` **print** the marker for whichever
+model carries one. A count of the word will always exceed the rows here and
+above by those, which is worth knowing before the next audit reads a discrepancy
+into it.
 
 ### Resolved discrepancies
 
 Kept rather than discarded, so a future contradiction has a documented history.
+
+- **68882 microcode version number: `$1F`, and it was a row here until
+  2026-09-16.** The row said "no manual publishes a value for any part and there
+  is nothing to transcribe", which was true of §6.4.2.2's *prose* and false of
+  its NOTE two pages later: "the format word values (`$1F18` and `$3F18` for the
+  MC68881, and **`$1F38` for the MC68882**)". Found walking §6.4 on 2026-09-07,
+  and the value this core had chosen was the published one, so the guess became a
+  transcription without changing. §6.4.3 states it a second time. Retired from
+  the table when the register was re-audited — `ap_m68882_cir.h` had said "no
+  longer `PROVISIONAL`" for nine days while the row still claimed it was, which
+  is the same drift in the opposite direction and is why the re-run checked both
+  ways.
 
 - **DN4500 CPU clock: 33 MHz, not 30 MHz.** `[CFG]`'s Series 4500 Product
   Summary (p. D-108) states "32-bit MC68030 33 MHz CPU with MC68882 33 MHz",
