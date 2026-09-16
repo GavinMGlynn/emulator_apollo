@@ -50,7 +50,12 @@ static bool board_read(ap_machine_t *machine, uint32_t address, unsigned count,
    * more: a read of the display controller's image memory *latches* while
    * reading, so two byte reads would latch twice and leave the guard latch
    * holding a byte pair rather than a word. */
-  return ap_board_read_access(machine->board, address, count, out);
+  /* **The access's own instant**, which is what this parameter exists for:
+   * the machine is the one party that knows when a cycle happens, and the
+   * board's devices date their deadlines from it. `ap_board.h` has the defect
+   * this closes. */
+  return ap_board_read_access(machine->board, machine->now, address, count,
+                              out);
 }
 
 static bool board_write(ap_machine_t *machine, uint32_t address, unsigned count,
@@ -61,7 +66,8 @@ static bool board_write(ap_machine_t *machine, uint32_t address, unsigned count,
    * with a byte mask -- two byte writes there would run two half-masked blits
    * where the hardware runs one. The width was known here and thrown away at
    * the boundary. */
-  return ap_board_write_access(machine->board, address, count, value);
+  return ap_board_write_access(machine->board, machine->now, address, count,
+                               value);
 }
 
 static void write_bytes(ap_machine_t *machine, uint32_t address, unsigned count,

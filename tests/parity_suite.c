@@ -45,13 +45,13 @@ static void control(uint16_t value) {
 
 static void write_byte(uint32_t address, uint8_t value) {
   bool ok = false;
-  ap_board_write(&board, address, value, &ok);
+  ap_board_write(&board, ap_board_instant(&board), address, value, &ok);
   TEST_ASSERT_TRUE(ok);
 }
 
 static uint8_t read_byte(uint32_t address) {
   bool ok = false;
-  const uint8_t value = ap_board_read(&board, address, &ok);
+  const uint8_t value = ap_board_read(&board, ap_board_instant(&board), address, &ok);
   TEST_ASSERT_TRUE(ok);
   return value;
 }

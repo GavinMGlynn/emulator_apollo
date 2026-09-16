@@ -179,17 +179,17 @@ static void arm_channel(ap_board_t *b, unsigned channel, uint8_t mode_bits,
                         uint16_t address, uint16_t count) {
   bool ok = false;
   const uint32_t base = AP_DMA1_ADDR;
-  ap_board_write(b, base + AP_I8237_REG_MODE, (uint8_t)(mode_bits | channel), &ok);
-  ap_board_write(b, base + AP_I8237_REG_CLEAR_FLIPFLOP, 0u, &ok);
-  ap_board_write(b, base + channel * 2u, (uint8_t)(address & 0xFFu), &ok);
-  ap_board_write(b, base + channel * 2u, (uint8_t)(address >> 8), &ok);
-  ap_board_write(b, base + channel * 2u + 1u, (uint8_t)(count & 0xFFu), &ok);
-  ap_board_write(b, base + channel * 2u + 1u, (uint8_t)(count >> 8), &ok);
-  ap_board_write(b, base + AP_I8237_REG_MASK_SINGLE, (uint8_t)channel, &ok);
+  ap_board_write(b, ap_board_instant(b), base + AP_I8237_REG_MODE, (uint8_t)(mode_bits | channel), &ok);
+  ap_board_write(b, ap_board_instant(b), base + AP_I8237_REG_CLEAR_FLIPFLOP, 0u, &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 2u, (uint8_t)(address & 0xFFu), &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 2u, (uint8_t)(address >> 8), &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 2u + 1u, (uint8_t)(count & 0xFFu), &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 2u + 1u, (uint8_t)(count >> 8), &ok);
+  ap_board_write(b, ap_board_instant(b), base + AP_I8237_REG_MASK_SINGLE, (uint8_t)channel, &ok);
   /* A software request, which is what lets a probe start a transfer with no
    * device wired to the channel. `[8237]`: the request register's bits are
    * "set or reset separately under software control". */
-  ap_board_write(b, base + AP_I8237_REG_REQUEST,
+  ap_board_write(b, ap_board_instant(b), base + AP_I8237_REG_REQUEST,
                  (uint8_t)(0x04u | channel), &ok);
 }
 
@@ -200,10 +200,10 @@ static void arm_channel(ap_board_t *b, unsigned channel, uint8_t mode_bits,
  * whose BIOS had not run. */
 static void program_cascade(ap_board_t *b) {
   bool ok = false;
-  ap_board_write(b, AP_DMA2_ADDR + AP_I8237_REG_MODE * 2u,
+  ap_board_write(b, ap_board_instant(b), AP_DMA2_ADDR + AP_I8237_REG_MODE * 2u,
                  (uint8_t)((AP_I8237_MODE_CASCADE << 6) | AP_DMA_CASCADE_CHANNEL),
                  &ok);
-  ap_board_write(b, AP_DMA2_ADDR + AP_I8237_REG_MASK_SINGLE * 2u,
+  ap_board_write(b, ap_board_instant(b), AP_DMA2_ADDR + AP_I8237_REG_MASK_SINGLE * 2u,
                  (uint8_t)AP_DMA_CASCADE_CHANNEL, &ok);
 }
 
@@ -216,13 +216,13 @@ static void arm_channel_for_device(ap_board_t *b, unsigned channel,
                                    uint16_t count) {
   bool ok = false;
   const uint32_t base = AP_DMA1_ADDR;
-  ap_board_write(b, base + AP_I8237_REG_MODE, (uint8_t)(mode_bits | channel), &ok);
-  ap_board_write(b, base + AP_I8237_REG_CLEAR_FLIPFLOP, 0u, &ok);
-  ap_board_write(b, base + channel * 2u, (uint8_t)(address & 0xFFu), &ok);
-  ap_board_write(b, base + channel * 2u, (uint8_t)(address >> 8), &ok);
-  ap_board_write(b, base + channel * 2u + 1u, (uint8_t)(count & 0xFFu), &ok);
-  ap_board_write(b, base + channel * 2u + 1u, (uint8_t)(count >> 8), &ok);
-  ap_board_write(b, base + AP_I8237_REG_MASK_SINGLE, (uint8_t)channel, &ok);
+  ap_board_write(b, ap_board_instant(b), base + AP_I8237_REG_MODE, (uint8_t)(mode_bits | channel), &ok);
+  ap_board_write(b, ap_board_instant(b), base + AP_I8237_REG_CLEAR_FLIPFLOP, 0u, &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 2u, (uint8_t)(address & 0xFFu), &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 2u, (uint8_t)(address >> 8), &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 2u + 1u, (uint8_t)(count & 0xFFu), &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 2u + 1u, (uint8_t)(count >> 8), &ok);
+  ap_board_write(b, ap_board_instant(b), base + AP_I8237_REG_MASK_SINGLE, (uint8_t)channel, &ok);
 }
 
 /* The same again on controller **2**, which the 802.3 card's DRQ6 is on. Its
@@ -234,14 +234,14 @@ static void arm_channel2_for_device(ap_board_t *b, unsigned channel,
                                     uint16_t count) {
   bool ok = false;
   const uint32_t base = AP_DMA2_ADDR;
-  ap_board_write(b, base + AP_I8237_REG_MODE * 2u,
+  ap_board_write(b, ap_board_instant(b), base + AP_I8237_REG_MODE * 2u,
                  (uint8_t)(mode_bits | channel), &ok);
-  ap_board_write(b, base + AP_I8237_REG_CLEAR_FLIPFLOP * 2u, 0u, &ok);
-  ap_board_write(b, base + channel * 4u, (uint8_t)(address & 0xFFu), &ok);
-  ap_board_write(b, base + channel * 4u, (uint8_t)(address >> 8), &ok);
-  ap_board_write(b, base + channel * 4u + 2u, (uint8_t)(count & 0xFFu), &ok);
-  ap_board_write(b, base + channel * 4u + 2u, (uint8_t)(count >> 8), &ok);
-  ap_board_write(b, base + AP_I8237_REG_MASK_SINGLE * 2u, (uint8_t)channel,
+  ap_board_write(b, ap_board_instant(b), base + AP_I8237_REG_CLEAR_FLIPFLOP * 2u, 0u, &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 4u, (uint8_t)(address & 0xFFu), &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 4u, (uint8_t)(address >> 8), &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 4u + 2u, (uint8_t)(count & 0xFFu), &ok);
+  ap_board_write(b, ap_board_instant(b), base + channel * 4u + 2u, (uint8_t)(count >> 8), &ok);
+  ap_board_write(b, ap_board_instant(b), base + AP_I8237_REG_MASK_SINGLE * 2u, (uint8_t)channel,
                  &ok);
 }
 
@@ -331,8 +331,8 @@ static void test_a_transfer_lands_where_the_map_points(void) {
   const uint16_t page = (uint16_t)(AP_BOARD_RAM_BASE >> 10);
   const uint32_t entry_at =
       AP_ATMAP_BASE + 2u * ap_atmap_index(0u, AP_ATMAP_TRANSFER_8BIT);
-  ap_board_write(&dma_board, entry_at + 0u, (uint8_t)(page >> 8), &ok);
-  ap_board_write(&dma_board, entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), entry_at + 0u, (uint8_t)(page >> 8), &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
 
   /* A read transfer: memory to the device. No device is wired, so the byte goes
    * nowhere and is counted -- but the *memory* side is the part under test, and
@@ -353,8 +353,8 @@ static void test_a_transfer_lands_where_the_map_points(void) {
 
   /* And a write transfer into the same page reaches the RAM the map chose. */
   build();
-  ap_board_write(&dma_board, entry_at + 0u, (uint8_t)(page >> 8), &ok);
-  ap_board_write(&dma_board, entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), entry_at + 0u, (uint8_t)(page >> 8), &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
   arm_channel(&dma_board, 0u, (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (1u << 2)),
               0x0100u, 0u);
   for (unsigned i = 0; i < 64u; i++) {
@@ -428,17 +428,17 @@ static void test_the_cascade_puts_controller_ones_channels_first(void) {
    * the second controller than the cascade's neighbour, so a model that merely
    * compared channel numbers within one part would pick it. */
   bool ok = false;
-  ap_board_write(&dma_board, AP_DMA2_ADDR + AP_I8237_REG_MODE * 2u,
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_DMA2_ADDR + AP_I8237_REG_MODE * 2u,
                  (uint8_t)((AP_I8237_MODE_BLOCK << 6) | 1u), &ok);
-  ap_board_write(&dma_board, AP_DMA2_ADDR + AP_I8237_REG_CLEAR_FLIPFLOP * 2u, 0u,
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_DMA2_ADDR + AP_I8237_REG_CLEAR_FLIPFLOP * 2u, 0u,
                  &ok);
-  ap_board_write(&dma_board, AP_DMA2_ADDR + 2u * 2u, 0u, &ok); /* address */
-  ap_board_write(&dma_board, AP_DMA2_ADDR + 2u * 2u, 0u, &ok);
-  ap_board_write(&dma_board, AP_DMA2_ADDR + 3u * 2u, 3u, &ok); /* count */
-  ap_board_write(&dma_board, AP_DMA2_ADDR + 3u * 2u, 0u, &ok);
-  ap_board_write(&dma_board, AP_DMA2_ADDR + AP_I8237_REG_MASK_SINGLE * 2u, 1u,
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_DMA2_ADDR + 2u * 2u, 0u, &ok); /* address */
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_DMA2_ADDR + 2u * 2u, 0u, &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_DMA2_ADDR + 3u * 2u, 3u, &ok); /* count */
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_DMA2_ADDR + 3u * 2u, 0u, &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_DMA2_ADDR + AP_I8237_REG_MASK_SINGLE * 2u, 1u,
                  &ok);
-  ap_board_write(&dma_board, AP_DMA2_ADDR + AP_I8237_REG_REQUEST * 2u,
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_DMA2_ADDR + AP_I8237_REG_REQUEST * 2u,
                  (uint8_t)(0x04u | 1u), &ok);
 
   /* Tick until the floppy's channel reaches terminal count -- which masks it,
@@ -496,10 +496,10 @@ static void start_tape_read(ap_board_t *b) {
   /* SELECT before READ: "The drive shall remain selected until changed by
    * another SELECT command or RESET", so an unselected drive takes no READ and
    * has nothing to hand over. */
-  ap_board_write(b, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
-  ap_board_write(b, AP_TAPE_ADDR + 0u, AP_QIC_CMD_SELECT, &ok);
-  ap_board_write(b, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
-  ap_board_write(b, AP_TAPE_ADDR + 0u, AP_QIC_CMD_READ, &ok);
+  ap_board_write(b, ap_board_instant(b), AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
+  ap_board_write(b, ap_board_instant(b), AP_TAPE_ADDR + 0u, AP_QIC_CMD_SELECT, &ok);
+  ap_board_write(b, ap_board_instant(b), AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
+  ap_board_write(b, ap_board_instant(b), AP_TAPE_ADDR + 0u, AP_QIC_CMD_READ, &ok);
 }
 
 /* Point map entry 0 at the page main memory begins on, so a DMA address is a
@@ -509,8 +509,8 @@ static void map_entry_zero_to_ram(ap_board_t *b) {
   const uint16_t page = (uint16_t)(AP_BOARD_RAM_BASE >> 10);
   const uint32_t entry_at =
       AP_ATMAP_BASE + 2u * ap_atmap_index(0u, AP_ATMAP_TRANSFER_8BIT);
-  ap_board_write(b, entry_at + 0u, (uint8_t)(page >> 8), &ok);
-  ap_board_write(b, entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
+  ap_board_write(b, ap_board_instant(b), entry_at + 0u, (uint8_t)(page >> 8), &ok);
+  ap_board_write(b, ap_board_instant(b), entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
 }
 
 static void test_the_tape_drives_its_own_request_line(void) {
@@ -528,14 +528,14 @@ static void test_the_tape_drives_its_own_request_line(void) {
   TEST_ASSERT_FALSE(ap_tape_dma_request(&dma_board.tape));
 
   bool ok = false;
-  ap_board_write(&dma_board, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
-  ap_board_write(&dma_board, AP_TAPE_ADDR + 0u, AP_QIC_CMD_SELECT, &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_TAPE_ADDR + 0u, AP_QIC_CMD_SELECT, &ok);
   /* Selected and still not asking: it is the READ that gives it something to
    * hand over, which is the same boundary the data register keeps. */
   TEST_ASSERT_FALSE(ap_tape_dma_request(&dma_board.tape));
 
-  ap_board_write(&dma_board, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
-  ap_board_write(&dma_board, AP_TAPE_ADDR + 0u, AP_QIC_CMD_READ, &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_TAPE_ADDR + 0u, AP_QIC_CMD_READ, &ok);
   TEST_ASSERT_TRUE(ap_tape_dma_request(&dma_board.tape));
 }
 
@@ -641,7 +641,7 @@ static void test_the_floppys_data_port_moves_under_dma(void) {
   TEST_ASSERT_EQUAL_UINT(1u, dma_board.dma_transfers);
   TEST_ASSERT_EQUAL_UINT(0u, dma_board.dma_unwired_transfers);
   TEST_ASSERT_EQUAL_HEX8(0x5Au,
-                         ap_board_read(&dma_board, AP_DISK_FLOPPY_ADDR + 5u,
+                         ap_board_read(&dma_board, ap_board_instant(&dma_board), AP_DISK_FLOPPY_ADDR + 5u,
                                        &ok));
 }
 
@@ -668,8 +668,8 @@ static void test_the_ethernet_card_moves_a_byte_over_drq6_and_sees_its_tc(void) 
   const uint16_t page = (uint16_t)(AP_BOARD_RAM_BASE >> 10);
   const uint32_t entry_at =
       AP_ATMAP_BASE + 2u * ap_atmap_index(0u, AP_ATMAP_TRANSFER_16BIT);
-  ap_board_write(&dma_board, entry_at + 0u, (uint8_t)(page >> 8), &ok);
-  ap_board_write(&dma_board, entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), entry_at + 0u, (uint8_t)(page >> 8), &ok);
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), entry_at + 1u, (uint8_t)(page & 0xFFu), &ok);
   TEST_ASSERT_TRUE(ok);
 
   dma_ram[0] = 0xA5u;
@@ -680,7 +680,7 @@ static void test_the_ethernet_card_moves_a_byte_over_drq6_and_sees_its_tc(void) 
   arm_channel2_for_device(&dma_board, AP_DMA_ETHERNET_CHANNEL,
                           (uint8_t)((AP_I8237_MODE_BLOCK << 6) | (2u << 2)), 0u,
                           0u);
-  ap_board_write(&dma_board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
+  ap_board_write(&dma_board, ap_board_instant(&dma_board), AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
                  AP_3C505_HCR_DMAE, &ok);
   TEST_ASSERT_TRUE(ok);
 
@@ -712,9 +712,9 @@ static void test_the_ethernet_card_moves_a_byte_over_drq6_and_sees_its_tc(void) 
  * byte-pointer flip-flop, then two reads of the count register. */
 static uint16_t read_count_over_the_bus(ap_board_t *b, unsigned channel) {
   bool ok = false;
-  ap_board_write(b, AP_DMA1_ADDR + AP_I8237_REG_CLEAR_FLIPFLOP, 0u, &ok);
-  const uint8_t low = ap_board_read(b, AP_DMA1_ADDR + channel * 2u + 1u, &ok);
-  const uint8_t high = ap_board_read(b, AP_DMA1_ADDR + channel * 2u + 1u, &ok);
+  ap_board_write(b, ap_board_instant(b), AP_DMA1_ADDR + AP_I8237_REG_CLEAR_FLIPFLOP, 0u, &ok);
+  const uint8_t low = ap_board_read(b, ap_board_instant(b), AP_DMA1_ADDR + channel * 2u + 1u, &ok);
+  const uint8_t high = ap_board_read(b, ap_board_instant(b), AP_DMA1_ADDR + channel * 2u + 1u, &ok);
   return (uint16_t)(low | ((uint16_t)high << 8));
 }
 

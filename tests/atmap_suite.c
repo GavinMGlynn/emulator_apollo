@@ -315,16 +315,16 @@ static void test_an_entry_written_as_two_bytes_keeps_both_halves(void) {
   TEST_ASSERT_TRUE(ap_board_init(&board, ram, sizeof ram, &epoch, 0x012345u));
 
   bool ok = false;
-  ap_board_write(&board, AP_ATMAP_BASE + 0u, 0x40u, &ok);
+  ap_board_write(&board, ap_board_instant(&board), AP_ATMAP_BASE + 0u, 0x40u, &ok);
   TEST_ASSERT_TRUE(ok);
-  ap_board_write(&board, AP_ATMAP_BASE + 1u, 0x00u, &ok);
+  ap_board_write(&board, ap_board_instant(&board), AP_ATMAP_BASE + 1u, 0x00u, &ok);
   TEST_ASSERT_TRUE(ok);
 
   /* The whole entry, not the last byte written twice. */
   TEST_ASSERT_EQUAL_HEX16(0x4000u, ap_atmap_read(&board.translation_map,
                                                  AP_ATMAP_BASE));
-  TEST_ASSERT_EQUAL_HEX8(0x40u, ap_board_read(&board, AP_ATMAP_BASE + 0u, &ok));
-  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_board_read(&board, AP_ATMAP_BASE + 1u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x40u, ap_board_read(&board, ap_board_instant(&board), AP_ATMAP_BASE + 0u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_board_read(&board, ap_board_instant(&board), AP_ATMAP_BASE + 1u, &ok));
 
   /* And it translates to where that page number points -- `4000 << 10` is
    * `01000000`, which is where this machine's main memory begins. So the

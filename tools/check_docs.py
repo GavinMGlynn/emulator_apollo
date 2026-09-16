@@ -727,6 +727,17 @@ def _rows_between(text: str, start: str, end: str) -> int:
 
 
 # The stored-cursor census, its own line in the register.
+# Comments, stripped before the census counts anything.
+#
+# Two versions of this were wrong before it was right, and both ways are worth
+# knowing. Counting raw occurrences tripped on the comment in `ap_board.h` that
+# *explains* the census -- a comment naming the pattern is not a part carrying
+# one. Anchoring to a whole line then missed a field declared inline, as
+# `typedef struct { ap_time_t now; } x;`, so the check passed on a seventh
+# cursor and proved nothing. Stripping the comments and counting the rest
+# catches both.
+C_COMMENT = re.compile(r"/\*.*?\*/|//[^\n]*", re.DOTALL)
+
 CURSOR_CENSUS = re.compile(
     r"\*\*Census, checked by `doc_claims`:\s*(\d+)\s*stored `ap_time_t now;`\s*"
     r"cursors across\s*`device/`\s*and\s*`board/`\.\*\*", re.MULTILINE)
@@ -759,8 +770,9 @@ def check_cursor_census(problems: list[str]) -> int:
         if not directory.is_dir():
             continue
         for path in sorted(directory.glob("*.h")):
-            found += path.read_text(encoding="utf-8",
-                                    errors="replace").count("ap_time_t now;")
+            source = C_COMMENT.sub(
+                "", path.read_text(encoding="utf-8", errors="replace"))
+            found += source.count("ap_time_t now;")
     claimed = int(match.group(1))
     if claimed != found:
         problems.append(

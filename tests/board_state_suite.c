@@ -697,8 +697,8 @@ static void test_two_boards_given_the_same_accesses_agree_at_every_step(void) {
     for (unsigned i = 0; i < sizeof writes / sizeof writes[0]; i++) {
       const uint8_t value = (uint8_t)(0x11u * (pass + 1u) + i);
       bool ok = false;
-      ap_board_write(&scratch, writes[i], value, &ok);
-      ap_board_write(&other, writes[i], value, &ok);
+      ap_board_write(&scratch, ap_board_instant(&scratch), writes[i], value, &ok);
+      ap_board_write(&other, ap_board_instant(&other), writes[i], value, &ok);
 
       const uint64_t now = ap_board_state_hash(&scratch);
       TEST_ASSERT_EQUAL_HEX64(now, ap_board_state_hash(&other));

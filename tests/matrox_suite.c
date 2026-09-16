@@ -149,7 +149,7 @@ static void test_the_board_answers_only_when_the_card_is_fitted(void) {
   TEST_ASSERT_EQUAL_INT(AP_BOARD_REGION_ATBUS,
                         ap_board_region(&board, AP_MATROX_CTL_ADDR + 6u));
   TEST_ASSERT_EQUAL_HEX8(
-      0xFFu, ap_board_read(&board, AP_MATROX_CTL_ADDR + 6u, &ok));
+      0xFFu, ap_board_read(&board, ap_board_instant(&board), AP_MATROX_CTL_ADDR + 6u, &ok));
   TEST_ASSERT_TRUE(ok);
 
   ap_board_attach_matrox(&board, true);
@@ -160,7 +160,7 @@ static void test_the_board_answers_only_when_the_card_is_fitted(void) {
    * makes, because a device that answers only when called directly is not
    * wired. */
   TEST_ASSERT_EQUAL_HEX8(AP_MATROX_STATUS_READY,
-                         ap_board_read(&board, AP_MATROX_CTL_ADDR + 6u, &ok));
+                         ap_board_read(&board, ap_board_instant(&board), AP_MATROX_CTL_ADDR + 6u, &ok));
   TEST_ASSERT_TRUE(ok);
 
   ap_board_attach_matrox(&board, false);

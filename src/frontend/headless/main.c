@@ -650,7 +650,7 @@ static void dump_memory(FILE *out, ap_board_t *board, uint32_t address,
     bool answered[16];
     for (uint32_t i = 0; i < run; i++) {
       bool ok = false;
-      bytes[i] = ap_board_read(board, base + i, &ok);
+      bytes[i] = ap_board_read(board, ap_board_instant(board), base + i, &ok);
       answered[i] = ok;
     }
     fprintf(out, "%08X ", base);
@@ -846,8 +846,8 @@ static int run_probe_file(FILE *out, ap_model_id_t model,
      * addresses and the diff stops needing a base offset. */
     for (unsigned i = 0; i < word_count; i++) {
       bool hi = false, lo = false;
-      ap_board_write(board, load + i * 2u, (uint8_t)(words[i] >> 8), &hi);
-      ap_board_write(board, load + i * 2u + 1u, (uint8_t)words[i], &lo);
+      ap_board_write(board, ap_board_instant(board), load + i * 2u, (uint8_t)(words[i] >> 8), &hi);
+      ap_board_write(board, ap_board_instant(board), load + i * 2u + 1u, (uint8_t)words[i], &lo);
       if (!hi || !lo) {
         free(board);
         free(board_ram);
@@ -898,7 +898,7 @@ static int run_probe_file(FILE *out, ap_model_id_t model,
     bool all = true;
     for (unsigned k = 0; k < 4u; k++) {
       bool ok = false;
-      const uint8_t byte = ap_board_read(board, read_at + k, &ok);
+      const uint8_t byte = ap_board_read(board, ap_board_instant(board), read_at + k, &ok);
       all = all && ok;
       stored = (stored << 8) | byte;
     }
@@ -5674,7 +5674,7 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
         bool all = true;
         for (unsigned k = 0; k < 4u; k++) {
           bool byte_ok = false;
-          const uint8_t byte = ap_board_read(board, watch + k, &byte_ok);
+          const uint8_t byte = ap_board_read(board, ap_board_instant(board), watch + k, &byte_ok);
           all = all && byte_ok;
           held = (held << 8) | byte;
         }
@@ -6284,7 +6284,7 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
                                      : 8u;
           for (uint32_t b = 0; b < shown; b++) {
             bool ok = false;
-            printf(" %02X", ap_board_read(board, physical + b, &ok));
+            printf(" %02X", ap_board_read(board, ap_board_instant(board), physical + b, &ok));
           }
         }
         printf("\n");

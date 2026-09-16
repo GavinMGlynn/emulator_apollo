@@ -2652,22 +2652,22 @@ static void start_verify_channel(ap_board_t *board, unsigned channel,
    * channel 0, and that channel is masked out of reset. Firmware programs this
    * at boot; a test that skipped it would be running on a machine whose BIOS
    * had not. */
-  ap_board_write(board, AP_DMA2_ADDR + AP_I8237_REG_MODE * 2u,
+  ap_board_write(board, ap_board_instant(board), AP_DMA2_ADDR + AP_I8237_REG_MODE * 2u,
                  (uint8_t)((AP_I8237_MODE_CASCADE << 6) | AP_DMA_CASCADE_CHANNEL),
                  &ok);
-  ap_board_write(board, AP_DMA2_ADDR + AP_I8237_REG_MASK_SINGLE * 2u,
+  ap_board_write(board, ap_board_instant(board), AP_DMA2_ADDR + AP_I8237_REG_MASK_SINGLE * 2u,
                  (uint8_t)AP_DMA_CASCADE_CHANNEL, &ok);
 
   const uint32_t base = AP_DMA1_ADDR;
-  ap_board_write(board, base + AP_I8237_REG_MODE,
+  ap_board_write(board, ap_board_instant(board), base + AP_I8237_REG_MODE,
                  (uint8_t)((AP_I8237_MODE_BLOCK << 6) | channel), &ok);
-  ap_board_write(board, base + AP_I8237_REG_CLEAR_FLIPFLOP, 0u, &ok);
-  ap_board_write(board, base + channel * 2u, 0u, &ok);
-  ap_board_write(board, base + channel * 2u, 0u, &ok);
-  ap_board_write(board, base + channel * 2u + 1u, (uint8_t)(count & 0xFFu), &ok);
-  ap_board_write(board, base + channel * 2u + 1u, (uint8_t)(count >> 8), &ok);
-  ap_board_write(board, base + AP_I8237_REG_MASK_SINGLE, (uint8_t)channel, &ok);
-  ap_board_write(board, base + AP_I8237_REG_REQUEST,
+  ap_board_write(board, ap_board_instant(board), base + AP_I8237_REG_CLEAR_FLIPFLOP, 0u, &ok);
+  ap_board_write(board, ap_board_instant(board), base + channel * 2u, 0u, &ok);
+  ap_board_write(board, ap_board_instant(board), base + channel * 2u, 0u, &ok);
+  ap_board_write(board, ap_board_instant(board), base + channel * 2u + 1u, (uint8_t)(count & 0xFFu), &ok);
+  ap_board_write(board, ap_board_instant(board), base + channel * 2u + 1u, (uint8_t)(count >> 8), &ok);
+  ap_board_write(board, ap_board_instant(board), base + AP_I8237_REG_MASK_SINGLE, (uint8_t)channel, &ok);
+  ap_board_write(board, ap_board_instant(board), base + AP_I8237_REG_REQUEST,
                  (uint8_t)(0x04u | channel), &ok);
 }
 
@@ -2984,12 +2984,12 @@ static void program_timer_through_the_board(ap_board_t *board, uint16_t latch) {
   const uint32_t rs1 = AP_TIMER_ADDR + 3u;
   const uint32_t rs2 = AP_TIMER_ADDR + 5u;
   const uint32_t rs3 = AP_TIMER_ADDR + 7u;
-  ap_board_write(board, rs1, 0x01u, &ok);
-  ap_board_write(board, rs0, 0x01u, &ok); /* all timers preset */
-  ap_board_write(board, rs2, (uint8_t)(latch >> 8), &ok);
-  ap_board_write(board, rs3, (uint8_t)(latch & 0xFFu), &ok);
-  ap_board_write(board, rs1, 0x01u, &ok);
-  ap_board_write(board, rs0, 0x50u, &ok); /* continuous, IRQ enabled, running */
+  ap_board_write(board, ap_board_instant(board), rs1, 0x01u, &ok);
+  ap_board_write(board, ap_board_instant(board), rs0, 0x01u, &ok); /* all timers preset */
+  ap_board_write(board, ap_board_instant(board), rs2, (uint8_t)(latch >> 8), &ok);
+  ap_board_write(board, ap_board_instant(board), rs3, (uint8_t)(latch & 0xFFu), &ok);
+  ap_board_write(board, ap_board_instant(board), rs1, 0x01u, &ok);
+  ap_board_write(board, ap_board_instant(board), rs0, 0x50u, &ok); /* continuous, IRQ enabled, running */
 }
 
 /* A program that touches nothing: the timer counts because time passed, which

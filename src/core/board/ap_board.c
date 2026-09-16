@@ -977,7 +977,10 @@ static uint8_t dma_memory_read(void *context, uint16_t address) {
   const uint32_t physical = dma_physical(board, address);
   board->dma_last_read = physical;
   bool ok = false;
-  return ap_board_read(board, physical, &ok);
+  /* A bus master's cycle happens at the instant the board has been carried
+   * to: the master runs inside `ap_board_bus_tick`, which the machine calls
+   * between advances, so the board's own instant *is* this cycle's. */
+  return ap_board_read(board, ap_board_instant(board), physical, &ok);
 }
 
 static void dma_memory_write(void *context, uint16_t address, uint8_t value) {
@@ -998,7 +1001,7 @@ static void dma_memory_write(void *context, uint16_t address, uint8_t value) {
     board->dma_first_write = physical;
   }
   bool ok = false;
-  ap_board_write(board, physical, value, &ok);
+  ap_board_write(board, ap_board_instant(board), physical, value, &ok);
 }
 
 /* Which device answers a DACK on this controller and channel, from `008778-03`
@@ -1320,6 +1323,10 @@ void ap_board_bus_tick(ap_board_t *board) {
 static bool deliver_key(ap_board_t *board, uint8_t code);
 static void drain_keyboard(ap_board_t *board, ap_time_t now);
 
+ap_time_t ap_board_instant(const ap_board_t *board) {
+  return board->advanced_to;
+}
+
 void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now) {
   switch (ap_board_region(board, address)) {
   case AP_BOARD_REGION_RAM:
@@ -1375,6 +1382,9 @@ void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now) {
 }
 
 void ap_board_advance(ap_board_t *board, ap_time_t now) {
+  /* What this board has been carried to, for a caller that needs to name an
+   * instant and has none of its own. See `ap_board_instant`. */
+  board->advanced_to = now;
   /* Each to the same instant, and each carrying its own remainder. Order does
    * not matter and must not: two devices advanced to the same absolute time
    * cannot influence each other through the advance itself, which is what makes
@@ -1650,13 +1660,15 @@ static uint32_t scsi_physical(const ap_board_t *board, uint32_t at_address) {
 static uint8_t scsi_memory_read(void *context, uint32_t address) {
   ap_board_t *board = (ap_board_t *)context;
   bool ok = false;
-  return ap_board_read(board, scsi_physical(board, address), &ok);
+  return ap_board_read(board, ap_board_instant(board),
+                       scsi_physical(board, address), &ok);
 }
 
 static void scsi_memory_write(void *context, uint32_t address, uint8_t value) {
   ap_board_t *board = (ap_board_t *)context;
   bool ok = false;
-  ap_board_write(board, scsi_physical(board, address), value, &ok);
+  ap_board_write(board, ap_board_instant(board),
+                 scsi_physical(board, address), value, &ok);
 }
 
 void ap_board_attach_scsi(ap_board_t *board) {
@@ -1937,7 +1949,15 @@ static void note_atbus_empty_address(ap_board_t *board, uint32_t address) {
   board->atbus_empty_addresses[board->atbus_empty_distinct++] = address;
 }
 
-uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
+uint8_t ap_board_read(ap_board_t *board, ap_time_t now,
+                     uint32_t address, bool *ok) {
+  /* **The addressed device is carried to the instant of this access**, which is
+   * what makes its stored cursor current by construction rather than by the
+   * cadence of whatever schedule is running. `ap_board.h` has the reasoning and
+   * the defect it closes. Costs nothing when the board is already there, which
+   * on every schedule this core runs it is. */
+  ap_board_advance_one(board, address, now);
+
   *ok = true;
   address &= board->map->address_mask;
   const ap_board_region_t counted = ap_board_region(board, address);
@@ -2152,8 +2172,15 @@ uint8_t ap_board_read(ap_board_t *board, uint32_t address, bool *ok) {
   return 0xFFu;
 }
 
-void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
-                    bool *ok) {
+void ap_board_write(ap_board_t *board, ap_time_t now, uint32_t address,
+                    uint8_t value, bool *ok) {
+  /* **The addressed device is carried to the instant of this access**, which is
+   * what makes its stored cursor current by construction rather than by the
+   * cadence of whatever schedule is running. `ap_board.h` has the reasoning and
+   * the defect it closes. Costs nothing when the board is already there, which
+   * on every schedule this core runs it is. */
+  ap_board_advance_one(board, address, now);
+
   *ok = true;
   address &= board->map->address_mask;
   const ap_board_region_t counted = ap_board_region(board, address);
@@ -2692,11 +2719,16 @@ static bool transfer_size(unsigned count) {
  * writing a byte past the end of the operand. */
 static bool whole_words(unsigned count) { return count == 2u || count == 4u; }
 
-bool ap_board_write_access(ap_board_t *board, uint32_t address, unsigned count,
-                           uint32_t value) {
+bool ap_board_write_access(ap_board_t *board, ap_time_t now, uint32_t address,
+                           unsigned count, uint32_t value) {
   if (!transfer_size(count)) {
     return false;
   }
+  /* Carried to the instant of this access, as the byte paths are. `count` may
+   * span a word, and the whole transfer happens at one instant -- which is what
+   * the hardware does: a bus cycle has one moment, not two. */
+  ap_board_advance_one(board, address, now);
+
 
   /* The fixed disk's data port is sixteen bits and a word access to it is one
    * cycle: served as two byte writes the second would land in the *status*
@@ -2737,7 +2769,7 @@ bool ap_board_write_access(ap_board_t *board, uint32_t address, unsigned count,
   bool all = true;
   for (unsigned i = 0; i < count; i++) {
     bool ok = false;
-    ap_board_write(board, address + i,
+    ap_board_write(board, now, address + i,
                    (uint8_t)(value >> ((count - 1u - i) * 8u)), &ok);
     all = all && ok;
   }
@@ -2768,11 +2800,16 @@ bool ap_board_peek_ram(const ap_board_t *board, uint32_t address,
   return true;
 }
 
-bool ap_board_read_access(ap_board_t *board, uint32_t address, unsigned count,
-                          uint32_t *out) {
+bool ap_board_read_access(ap_board_t *board, ap_time_t now, uint32_t address,
+                          unsigned count, uint32_t *out) {
   if (out == NULL || !transfer_size(count)) {
     return false;
   }
+  /* Carried to the instant of this access, as the byte paths are. `count` may
+   * span a word, and the whole transfer happens at one instant -- which is what
+   * the hardware does: a bus cycle has one moment, not two. */
+  ap_board_advance_one(board, address, now);
+
 
   if (whole_words(count) && ap_disk_is_data_port(&board->disk, address)) {
     board->region_reads[AP_BOARD_REGION_DISK] += count;
@@ -2807,7 +2844,7 @@ bool ap_board_read_access(ap_board_t *board, uint32_t address, unsigned count,
   uint32_t value = 0;
   for (unsigned i = 0; i < count; i++) {
     bool ok = false;
-    const uint8_t byte = ap_board_read(board, address + i, &ok);
+    const uint8_t byte = ap_board_read(board, now, address + i, &ok);
     all = all && ok;
     value = (value << 8) | byte;
   }

@@ -21441,6 +21441,61 @@ path assigns `out.clocks` from the data cycle, which silently overwrote the
 first version's addition, and the phase tests passed throughout because phases
 are not clocks. `ctest` 153/153 on both presets.*
 
+## The access's instant reaches the board, and the cursor hazard is closed
+## (2026-09-16)
+
+The expensive half, built. Six parts date their deadlines from a stored `now`
+that only an advance refreshes, and the cursor was kept fresh by the *schedule*
+rather than by the access: every schedule this core has run advances every
+device at least once an instruction, so the stored instant happened to be the
+access's. "Happened to be" was the defect — a schedule that skipped an advance
+left a cursor behind and completed a device's next command **early**, measured
+and bisected to between 100 M and 200 M instructions.
+
+`ap_board_read`, `ap_board_write`, `ap_board_read_access` and
+`ap_board_write_access` take `ap_time_t now` and advance the addressed device to
+it before the access touches it. The cursor is current **by construction**, and a
+schedule is now free to skip advances without the hazard — which is what the
+exact-skip item carried this as a prerequisite for.
+
+**`now` is second**, before the address: it says *when* this board is being
+accessed before saying where, and it pairs with the board rather than with the
+region. That also made the change mechanical — the first argument is on the same
+line as the call at every site — which matters at this size.
+
+**The count was 259, not the 120 the item recorded.** 14 in `src/` and 245 in the
+frontend and tests; the plan's figure predates a year of suites. Every one was
+found by the compiler rather than by a search, which is the only reason a change
+this wide is safe to make at all: the signature changed, and nothing that calls
+it could still build.
+
+**What each caller passes.** The machine passes `machine->now`, which is the
+whole point — it is the one party that knows when a cycle happens. A bus master's
+DMA or SCSI cycle passes `ap_board_instant(board)`, the board's own instant,
+because a master runs inside `ap_board_bus_tick` between advances and the board's
+instant *is* that cycle's. Tests and the frontend's observers pass the same, which
+for them is a no-op advance to where the board already is — and is correct for
+exactly that reason rather than by convention.
+
+**Both identity hashes are unchanged**, `B84BEA19E9D3EB16` and
+`08591C51E9D4372F`. On the current schedule the constructed instant and the
+cadenced one coincide, so nothing moves; the change is that they can no longer
+diverge.
+
+### And the census caught its own documentation, twice
+
+`check_cursor_census` counted raw occurrences of `ap_time_t now;` and tripped on
+the comment in `ap_board.h` that *explains* the census — a comment naming the
+pattern is not a part carrying one. Anchoring it to a whole line then missed a
+field declared inline, as `typedef struct { ap_time_t now; } x;`, so it passed a
+seventh cursor and proved nothing. Stripping comments and counting the rest
+catches both, and both forms were tried against it. *A check that has not been
+made to fail is a check nobody has read.*
+
+*Verification: `ctest` 153/153 on both presets; both identities re-run on the
+release build; the census proved to fail on an inline and an own-line seventh
+cursor, and to pass its own documentation.*
+
 ## The stored device cursors are six, not four, and the count is checked now
 ## (2026-09-16)
 

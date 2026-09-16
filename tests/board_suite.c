@@ -97,7 +97,7 @@ static void test_an_unclaimed_address_is_unmapped_not_zero(void) {
    * zero, which hid thousands of accesses that should have been visible -- an
    * emulator that answers everything cannot say what the firmware wanted. */
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_UNMAPPED, ap_board_region(&region_board, 0x020000u));
-  (void)ap_board_read(&b, 0x020000u, &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), 0x020000u, &ok);
   TEST_ASSERT_FALSE(ok);
   TEST_ASSERT_EQUAL_UINT(1u, b.unmapped_reads);
   TEST_ASSERT_EQUAL_HEX32(0x020000u, b.first_unmapped_read);
@@ -111,13 +111,13 @@ static void test_main_memory_is_where_table_two_eight_puts_it(void) {
   /* `1000000`, not zero. The boot image's own load address of `0013D800` is
    * *below* this, among the devices -- which is why flat-RAM-from-zero was the
    * wrong shape and why the firmware reached high thousands of times. */
-  ap_board_write(&b, AP_BOARD_RAM_BASE + 4u, 0x5Au, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_BOARD_RAM_BASE + 4u, 0x5Au, &ok);
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, AP_BOARD_RAM_BASE + 4u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, ap_board_instant(&b), AP_BOARD_RAM_BASE + 4u, &ok));
   TEST_ASSERT_TRUE(ok);
 
   /* And past the memory actually fitted is unmapped, not a wrap. */
-  (void)ap_board_read(&b, AP_BOARD_RAM_BASE + sizeof ram, &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), AP_BOARD_RAM_BASE + sizeof ram, &ok);
   TEST_ASSERT_FALSE(ok);
 }
 
@@ -178,7 +178,7 @@ static void test_reads_reach_the_devices_themselves(void) {
 
   /* Each device's own measured idle value, through the map rather than
    * directly -- so the map is checked against the same dumps the devices are. */
-  TEST_ASSERT_EQUAL_HEX8(0xC0u, ap_board_read(&b, 0x04D001u, &ok)); /* disk */
+  TEST_ASSERT_EQUAL_HEX8(0xC0u, ap_board_read(&b, ap_board_instant(&b), 0x04D001u, &ok)); /* disk */
   TEST_ASSERT_TRUE(ok);
   /* `F7`, not the `40` the oracle reads at reset: RDY and EXC are asserted low
    * so both bits stand at one on an idle controller, DONE is set by the reset
@@ -187,11 +187,11 @@ static void test_reads_reach_the_devices_themselves(void) {
    * `ap_sc499.h` -- the driver waits for `F7` and `57`, both of which carry
    * those three bits. Bit 7, IRQF, is active low too, so an idle controller
    * reads it as one and the whole byte is exactly the `F7` the driver wants. */
-  TEST_ASSERT_EQUAL_HEX8(0xF7u, ap_board_read(&b, 0x050001u, &ok)); /* tape */
+  TEST_ASSERT_EQUAL_HEX8(0xF7u, ap_board_read(&b, ap_board_instant(&b), 0x050001u, &ok)); /* tape */
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_HEX8(0x80u, ap_board_read(&b, 0x05F807u, &ok)); /* floppy */
+  TEST_ASSERT_EQUAL_HEX8(0x80u, ap_board_read(&b, ap_board_instant(&b), 0x05F807u, &ok)); /* floppy */
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, 0x011202u, &ok)); /* node ID */
+  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, ap_board_instant(&b), 0x011202u, &ok)); /* node ID */
   TEST_ASSERT_TRUE(ok);
 }
 
@@ -211,9 +211,9 @@ static void test_the_read_only_memories_absorb_writes_rather_than_faulting(void)
   static const uint8_t prom[4] = {0x01u, 0x00u, 0x01u, 0x80u};
   TEST_ASSERT_TRUE(ap_board_load_prom(&b, prom, sizeof prom));
 
-  ap_board_write(&b, 0x000002u, 0x5Au, &ok);
+  ap_board_write(&b, ap_board_instant(&b), 0x000002u, 0x5Au, &ok);
   TEST_ASSERT_TRUE(ok);
-  ap_board_write(&b, 0x011202u, 0x5Au, &ok);
+  ap_board_write(&b, ap_board_instant(&b), 0x011202u, 0x5Au, &ok);
   TEST_ASSERT_TRUE(ok);
 
   /* Not unmapped -- an unmapped write is an address nothing answers, and these
@@ -225,9 +225,9 @@ static void test_the_read_only_memories_absorb_writes_rather_than_faulting(void)
   TEST_ASSERT_EQUAL_HEX32(0x000002u, b.first_rom_write);
 
   /* Absorbed, not stored: both still read what they held. */
-  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, 0x000002u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, ap_board_instant(&b), 0x000002u, &ok));
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, 0x011202u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, ap_board_instant(&b), 0x011202u, &ok));
   TEST_ASSERT_TRUE(ok);
 }
 
@@ -240,7 +240,7 @@ static void test_a_missing_prom_is_absent_for_writes_too(void) {
   bool ok = true;
   init(&b);
 
-  ap_board_write(&b, 0x000100u, 0x5Au, &ok);
+  ap_board_write(&b, ap_board_instant(&b), 0x000100u, 0x5Au, &ok);
   TEST_ASSERT_FALSE(ok);
   TEST_ASSERT_EQUAL_UINT(1u, b.unmapped_writes);
   TEST_ASSERT_EQUAL_UINT(0u, b.rom_writes);
@@ -262,9 +262,9 @@ static void test_an_empty_at_bus_window_reads_ff_rather_than_faulting(void) {
   init(&b);
 
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(&region_board, 0x090000u));
-  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, 0x090000u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, ap_board_instant(&b), 0x090000u, &ok));
   TEST_ASSERT_TRUE(ok);
-  ap_board_write(&b, 0x090000u, 0x5Au, &ok);
+  ap_board_write(&b, ap_board_instant(&b), 0x090000u, 0x5Au, &ok);
   TEST_ASSERT_TRUE(ok);
 
   /* Counted apart from unmapped, because they mean different things: an empty
@@ -292,14 +292,14 @@ static void test_the_ring_windows_are_an_empty_slot_until_a_card_is_fitted(
   init(&b);
 
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_ATBUS, ap_board_region(&b, 0x059000u));
-  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, 0x059000u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, ap_board_instant(&b), 0x059000u, &ok));
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_EQUAL_UINT(1u, b.atbus_empty_reads);
 
   ap_board_attach_ring(&b, true);
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RING, ap_board_region(&b, 0x059000u));
   /* Finding 39: the ID register, reached from the CPU's side of the bus. */
-  TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6, ap_board_read(&b, 0x059000u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6, ap_board_read(&b, ap_board_instant(&b), 0x059000u, &ok));
   TEST_ASSERT_TRUE(ok);
   /* And the slot counter did not move -- a fitted card is not an empty one. */
   TEST_ASSERT_EQUAL_UINT(1u, b.atbus_empty_reads);
@@ -308,7 +308,7 @@ static void test_the_ring_windows_are_an_empty_slot_until_a_card_is_fitted(
    * configured without a ring board must be indistinguishable from one that
    * never had the code. */
   ap_board_attach_ring(&b, false);
-  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, 0x059000u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, ap_board_instant(&b), 0x059000u, &ok));
   TEST_ASSERT_EQUAL_UINT(2u, b.atbus_empty_reads);
 }
 
@@ -326,7 +326,7 @@ static void test_every_ring_window_reaches_the_card_from_the_bus(void) {
   for (unsigned i = 0; i < sizeof bases / sizeof bases[0]; i++) {
     TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RING,
                            ap_board_region(&b, bases[i]));
-    (void)ap_board_read(&b, bases[i], &ok);
+    (void)ap_board_read(&b, ap_board_instant(&b), bases[i], &ok);
     TEST_ASSERT_TRUE(ok);
   }
 
@@ -335,7 +335,7 @@ static void test_every_ring_window_reaches_the_card_from_the_bus(void) {
    * until that page was walked. Finding 93i corrected the 16-bit path and this
    * test reaches the card eight bits at a time, so it kept asserting the
    * defect through the fix aimed at it. */
-  TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6, ap_board_read(&b, 0x059000u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(AP_RING_CTL_ID_6, ap_board_read(&b, ap_board_instant(&b), 0x059000u, &ok));
 
   /* And the ring board's PROM is the *same identity* as the one at `011200`,
    * register for register, which is the property that makes it a node ID at
@@ -345,14 +345,14 @@ static void test_every_ring_window_reaches_the_card_from_the_bus(void) {
      * banks a kilobyte apart in the ring window: four slots, then `+400`. */
     const uint32_t ring = 0x051000u + (uint32_t)((reg >> 2) << 10) +
                           (uint32_t)((reg & 3u) << 1);
-    TEST_ASSERT_EQUAL_HEX8(ap_board_read(&b, 0x011200u + (uint32_t)(reg << 1),
+    TEST_ASSERT_EQUAL_HEX8(ap_board_read(&b, ap_board_instant(&b), 0x011200u + (uint32_t)(reg << 1),
                                          &ok),
-                           ap_board_read(&b, ring, &ok));
+                           ap_board_read(&b, ap_board_instant(&b), ring, &ok));
   }
-  TEST_ASSERT_EQUAL_HEX8(0x69u, ap_board_read(&b, 0x051C06u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x69u, ap_board_read(&b, ap_board_instant(&b), 0x051C06u, &ok));
 
   /* `[ROM3500]` `0000C6`: `$30` to `+806`, which is timer A's control word. */
-  ap_board_write(&b, 0x059806u, 0x30u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), 0x059806u, 0x30u, &ok);
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_EQUAL_HEX8(0x30u, b.ring.a2.timer_a.counter[0].control);
   /* The `a1` window is the same card's other half and a *different* register
@@ -380,13 +380,13 @@ static void test_a_second_ring_unit_is_an_empty_slot_when_one_card_is_fitted(
   for (unsigned i = 0; i < sizeof unit1 / sizeof unit1[0]; i++) {
     TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RING,
                            ap_board_region(&b, unit1[i]));
-    TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, unit1[i], &ok));
+    TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, ap_board_instant(&b), unit1[i], &ok));
     TEST_ASSERT_TRUE(ok);
   }
 
   /* And a write into the empty slot reaches no register of the fitted card --
    * the aliasing went both ways. */
-  ap_board_write(&b, 0x05A806u, 0x30u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), 0x05A806u, 0x30u, &ok);
   TEST_ASSERT_EQUAL_HEX8(0x00u, b.ring.a2.timer_a.counter[0].control);
 }
 
@@ -496,13 +496,13 @@ static void test_the_empty_slot_addresses_are_kept_distinct_and_in_order(void) {
 
   /* A poll: one address, many times. It must appear once. */
   for (unsigned i = 0; i < 32u; i++) {
-    (void)ap_board_read(&b, 0x055C08u, &ok);
+    (void)ap_board_read(&b, ap_board_instant(&b), 0x055C08u, &ok);
   }
   /* Then a second register on the same absent card, and a write to a third --
    * writes share the list, since a command register and the status register
    * beside it are the pairing this exists to show. */
-  (void)ap_board_read(&b, 0x055C00u, &ok);
-  ap_board_write(&b, 0x055C0Eu, 0xA5u, &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), 0x055C00u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), 0x055C0Eu, 0xA5u, &ok);
 
   TEST_ASSERT_EQUAL_UINT(33u, b.atbus_empty_reads);
   TEST_ASSERT_EQUAL_UINT(3u, b.atbus_empty_distinct);
@@ -522,7 +522,7 @@ static void test_more_empty_slot_addresses_than_fit_are_counted_not_dropped(
 
   const unsigned probes = AP_BOARD_ATBUS_EMPTY_ADDRESSES + 5u;
   for (unsigned i = 0; i < probes; i++) {
-    (void)ap_board_read(&b, 0x090000u + i * 0x100u, &ok);
+    (void)ap_board_read(&b, ap_board_instant(&b), 0x090000u + i * 0x100u, &ok);
   }
 
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_ATBUS_EMPTY_ADDRESSES,
@@ -591,7 +591,7 @@ static void test_main_memory_s_name_stops_where_its_address_space_does(void) {
   init(&b);
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_RAM,
                          ap_board_region(&region_board, AP_BOARD_RAM_BASE + sizeof ram));
-  (void)ap_board_read(&b, AP_BOARD_RAM_BASE + sizeof ram, &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), AP_BOARD_RAM_BASE + sizeof ram, &ok);
   TEST_ASSERT_FALSE(ok);
 }
 
@@ -620,9 +620,9 @@ static void test_every_core_board_register_is_reachable_through_the_map(void) {
   for (unsigned i = 0; i < sizeof registers / sizeof registers[0]; i++) {
     TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CORE_REGISTER,
                            ap_board_region(&region_board, registers[i]));
-    (void)ap_board_read(&b, registers[i], &ok);
+    (void)ap_board_read(&b, ap_board_instant(&b), registers[i], &ok);
     TEST_ASSERT_TRUE(ok);
-    ap_board_write(&b, registers[i], 0x00u, &ok);
+    ap_board_write(&b, ap_board_instant(&b), registers[i], 0x00u, &ok);
     TEST_ASSERT_TRUE(ok);
   }
   TEST_ASSERT_EQUAL_UINT(0u, b.unmapped_reads);
@@ -655,17 +655,17 @@ static void test_a_key_press_reaches_serial_one_channel_a(void) {
    * ends have to be told the same thing. Delivering at whatever the port
    * happened to be set to -- which this board did -- is a machine where the
    * cable always agrees. */
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
                  AP_SIO_KEYBOARD_MR1, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
                  AP_SIO_KEYBOARD_CSR, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
 
   TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x4Bu));
   clock_out_one_byte(&b);
 
   TEST_ASSERT_EQUAL_HEX8(
-      0x4Bu, ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+      0x4Bu, ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
   TEST_ASSERT_TRUE(ok);
 
   /* And the release carries bit 7, which is how the firmware tells them
@@ -673,7 +673,7 @@ static void test_a_key_press_reaches_serial_one_channel_a(void) {
   TEST_ASSERT_TRUE(ap_board_key_release(&b, 0x4Bu));
   clock_out_one_byte(&b);
   TEST_ASSERT_EQUAL_HEX8(
-      0xCBu, ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+      0xCBu, ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
 }
 
 /* Typing is a **different code set** from pressing. `ap_kbd_press` sends a
@@ -687,29 +687,29 @@ static void test_typing_sends_the_character_not_a_matrix_index(void) {
   ap_board_t b;
   bool ok = false;
   init(&b);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
                  AP_SIO_KEYBOARD_MR1, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
                  AP_SIO_KEYBOARD_CSR, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
 
   TEST_ASSERT_TRUE(ap_board_key_type(&b, 'y'));
   clock_out_one_byte(&b);
   TEST_ASSERT_EQUAL_HEX8(
-      'y', ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+      'y', ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
 
   /* A capital comes over as the capital, with no shift key sent before it. */
   TEST_ASSERT_TRUE(ap_board_key_type(&b, 'Y'));
   clock_out_one_byte(&b);
   TEST_ASSERT_EQUAL_HEX8(
-      'Y', ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+      'Y', ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
 
   /* RETURN is reachable only as its own code, `CB` -- sending `0D` raw would be
    * sending a byte no key on this keyboard produces. */
   TEST_ASSERT_TRUE(ap_board_key_type(&b, '\r'));
   clock_out_one_byte(&b);
   TEST_ASSERT_EQUAL_HEX8(
-      0xCBu, ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+      0xCBu, ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
 
   /* And a character no key produces is refused rather than sent as something
    * plausible. */
@@ -730,11 +730,11 @@ static void test_a_typed_command_arrives_character_for_character(void) {
   ap_board_t b;
   bool ok = false;
   init(&b);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
                  AP_SIO_KEYBOARD_MR1, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
                  AP_SIO_KEYBOARD_CSR, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
 
   for (unsigned i = 0; command[i] != '\0'; i++) {
     TEST_ASSERT_TRUE(ap_board_key_type(&b, command[i]));
@@ -742,7 +742,7 @@ static void test_a_typed_command_arrives_character_for_character(void) {
      * now, so the byte reaches the port a character time after it is typed. */
     clock_out_one_byte(&b);
     const uint8_t got =
-        ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
+        ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
     TEST_ASSERT_EQUAL_HEX8((uint8_t)command[i], got);
     /* And the port is empty again, so the next character cannot be refused for
      * want of room. */
@@ -802,13 +802,13 @@ static void test_the_keyboards_reply_arrives_at_the_keyboards_own_rate(void) {
   ap_board_t b;
   bool ok = false;
   init(&b);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
                  AP_SIO_KEYBOARD_MR1, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
                  AP_SIO_KEYBOARD_CSR, &ok);
   /* Enable both halves: the transmitter so the command goes out, the receiver
    * so the answer can land. */
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x05u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x05u, &ok);
 
   /* **The keyboard's rate, not the port's, and that is the change.** This used
    * to be `ap_sio_character_time` -- the width of a character as the *DUART* is
@@ -827,7 +827,7 @@ static void test_the_keyboards_reply_arrives_at_the_keyboards_own_rate(void) {
   const uint8_t command[3] = {0xFFu, 0x11u, 0x16u};
   ap_time_t now = 0u;
   for (unsigned i = 0; i < 3u; i++) {
-    ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), command[i],
+    ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), command[i],
                    &ok);
     now += character;
     ap_board_advance(&b, now);
@@ -842,19 +842,19 @@ static void test_the_keyboards_reply_arrives_at_the_keyboards_own_rate(void) {
   {
     ap_board_t fresh;
     init(&fresh);
-    ap_board_write(&fresh, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+    ap_board_write(&fresh, ap_board_instant(&fresh), AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
                    AP_SIO_KEYBOARD_MR1, &ok);
-    ap_board_write(&fresh, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+    ap_board_write(&fresh, ap_board_instant(&fresh), AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
                    AP_SIO_KEYBOARD_CSR, &ok);
-    ap_board_write(&fresh, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x05u, &ok);
+    ap_board_write(&fresh, ap_board_instant(&fresh), AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x05u, &ok);
     /* `00` in loopback is answered with the two-byte mode announcement. */
-    ap_board_write(&fresh, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), 0x00u,
+    ap_board_write(&fresh, ap_board_instant(&fresh), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), 0x00u,
                    &ok);
     ap_board_advance(&fresh, 1u);
     TEST_ASSERT_TRUE(ap_kbd_reply_pending(&fresh.keyboard) > 0u);
     /* Queued, and *nothing* has reached the receiver yet. */
     TEST_ASSERT_EQUAL_HEX8(0u,
-                           ap_board_read(&fresh, AP_SIO1_ADDR +
+                           ap_board_read(&fresh, ap_board_instant(&fresh), AP_SIO1_ADDR +
                                                      (AP_MC68681_SR_CSR_A * 2u),
                                          &ok) &
                                AP_MC68681_SR_RXRDY);
@@ -862,7 +862,7 @@ static void test_the_keyboards_reply_arrives_at_the_keyboards_own_rate(void) {
      * time *after* that instant is when the first byte is due. */
     ap_board_advance(&fresh, character + 1u);
     TEST_ASSERT_NOT_EQUAL_HEX8(0u,
-                               ap_board_read(&fresh,
+                               ap_board_read(&fresh, ap_board_instant(&fresh),
                                              AP_SIO1_ADDR +
                                                  (AP_MC68681_SR_CSR_A * 2u),
                                              &ok) &
@@ -871,7 +871,7 @@ static void test_the_keyboards_reply_arrives_at_the_keyboards_own_rate(void) {
 
   /* Not all at once: whatever the keyboard had to say, the line has carried at
    * most one character per character time and the FIFO has not overrun. */
-  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(&b, AP_SIO1_ADDR +
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR +
                                                    (AP_MC68681_SR_CSR_A * 2u),
                                            &ok) &
                                  AP_MC68681_SR_OVERRUN);
@@ -882,9 +882,9 @@ static void test_the_keyboards_reply_arrives_at_the_keyboards_own_rate(void) {
   unsigned drained = 0u;
   for (unsigned step = 0; step < 64u && ap_kbd_reply_pending(&b.keyboard) > 0u;
        step++) {
-    while ((ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u), &ok) &
+    while ((ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u), &ok) &
             AP_MC68681_SR_RXRDY) != 0u) {
-      (void)ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
+      (void)ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
       drained++;
     }
     now += character;
@@ -892,7 +892,7 @@ static void test_the_keyboards_reply_arrives_at_the_keyboards_own_rate(void) {
   }
   TEST_ASSERT_EQUAL_UINT(0u, ap_kbd_reply_pending(&b.keyboard));
   TEST_ASSERT_TRUE(drained > 0u);
-  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(&b, AP_SIO1_ADDR +
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR +
                                                    (AP_MC68681_SR_CSR_A * 2u),
                                            &ok) &
                                  AP_MC68681_SR_OVERRUN);
@@ -905,16 +905,16 @@ static void test_a_repeated_press_puts_nothing_on_the_port(void) {
   ap_board_t b;
   bool ok = false;
   init(&b);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u), 0x07u, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u), 0x07u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
 
   TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x4Bu));
-  (void)ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
 
   TEST_ASSERT_FALSE(ap_board_key_press(&b, 0x4Bu));
   /* Nothing waiting. */
   TEST_ASSERT_FALSE(
-      (ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u), &ok) &
+      (ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u), &ok) &
        AP_MC68681_SR_RXRDY) != 0u);
 }
 
@@ -927,7 +927,7 @@ static void test_the_boot_prom_region_is_reported_absent(void) {
    * a machine answering the PROM with zeros looks like one with a blank PROM
    * rather than one without a PROM at all. */
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_PROM, ap_board_region(&region_board, 0x000000u));
-  (void)ap_board_read(&b, 0x000000u, &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), 0x000000u, &ok);
   TEST_ASSERT_FALSE(ok);
 }
 
@@ -970,16 +970,16 @@ static void test_the_whole_map_region_is_entries_and_none_are_undescribed(void) 
   init(&b);
 
   bool ok = false;
-  (void)ap_board_read(&b, AP_ATMAP_BASE + 0x0FFu, &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), AP_ATMAP_BASE + 0x0FFu, &ok);
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_EQUAL_UINT(1u, b.region_reads[AP_BOARD_REGION_TRANSLATION_MAP]);
 
   /* The byte that used to be the first past the entries. */
-  (void)ap_board_read(&b, AP_ATMAP_BASE + 0x100u, &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), AP_ATMAP_BASE + 0x100u, &ok);
   TEST_ASSERT_TRUE(ok);
-  (void)ap_board_read(&b, AP_ATMAP_LIMIT - 1u, &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), AP_ATMAP_LIMIT - 1u, &ok);
   TEST_ASSERT_TRUE(ok);
-  ap_board_write(&b, AP_ATMAP_LIMIT - 1u, 0x5Au, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_ATMAP_LIMIT - 1u, 0x5Au, &ok);
   TEST_ASSERT_TRUE(ok);
 
   TEST_ASSERT_EQUAL_UINT(0u, b.atmap_undescribed_reads);
@@ -994,15 +994,15 @@ static void test_the_map_does_not_alias_within_its_region(void) {
   init(&b);
 
   bool ok = false;
-  ap_board_write(&b, AP_ATMAP_BASE + 0x001u, 0x5Au, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_ATMAP_BASE + 0x001u, 0x5Au, &ok);
   TEST_ASSERT_TRUE(ok);
 
-  const uint8_t elsewhere = ap_board_read(&b, AP_ATMAP_BASE + 0x101u, &ok);
+  const uint8_t elsewhere = ap_board_read(&b, ap_board_instant(&b), AP_ATMAP_BASE + 0x101u, &ok);
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_NOT_EQUAL_HEX8(0x5Au, elsewhere);
 
   /* And the byte written is still there, so the write went somewhere real. */
-  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, AP_ATMAP_BASE + 0x001u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, ap_board_instant(&b), AP_ATMAP_BASE + 0x001u, &ok));
 }
 
 /* The two registers Table 2-8 names and this core declines. Counted apart
@@ -1021,9 +1021,9 @@ static void test_the_last_two_registers_are_counted_apart(void) {
    * "which of these did a run touch" is a question worth answering whether or
    * not the register stores. The counters were introduced when the pair was
    * declined and outlived the declination. */
-  (void)ap_board_read(&b, AP_BOARDREG_TASK_ALIAS_ADDR, &ok);
-  ap_board_write(&b, AP_BOARDREG_MASTER_REQUEST_ADDR, 0x40u, &ok);
-  ap_board_write(&b, AP_BOARDREG_MASTER_REQUEST_ADDR + 0x0FFu, 0x00u, &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), AP_BOARDREG_TASK_ALIAS_ADDR, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_BOARDREG_MASTER_REQUEST_ADDR, 0x40u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_BOARDREG_MASTER_REQUEST_ADDR + 0x0FFu, 0x00u, &ok);
 
   TEST_ASSERT_EQUAL_UINT(1u, b.task_alias_reads);
   TEST_ASSERT_EQUAL_UINT(0u, b.task_alias_writes);
@@ -1038,7 +1038,7 @@ static void test_the_last_two_registers_are_counted_apart(void) {
 
   /* Another register is not counted here, or the counters would report the
    * whole core-register region rather than these two. */
-  ap_board_write(&b, AP_BOARDREG_CPU_CONTROL_ADDR, 0x11u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_BOARDREG_CPU_CONTROL_ADDR, 0x11u, &ok);
   TEST_ASSERT_EQUAL_UINT(0u, b.task_alias_writes);
   TEST_ASSERT_EQUAL_UINT(2u, b.master_request_writes);
 }
@@ -1157,9 +1157,9 @@ static void test_a_ds3000_device_write_reaches_the_same_register(void) {
   bool ok = false;
   /* Register 2 of serial 1 channel A -- the command register -- at each board's
    * own address for it. */
-  ap_board_write(&ds3000, 0x008400u + AP_MC68681_CR_A * 2u, 0x05u, &ok);
+  ap_board_write(&ds3000, ap_board_instant(&ds3000), 0x008400u + AP_MC68681_CR_A * 2u, 0x05u, &ok);
   TEST_ASSERT_TRUE(ok);
-  ap_board_write(&ds4000, AP_SIO1_ADDR + AP_MC68681_CR_A * 2u, 0x05u, &ok);
+  ap_board_write(&ds4000, ap_board_instant(&ds4000), AP_SIO1_ADDR + AP_MC68681_CR_A * 2u, 0x05u, &ok);
   TEST_ASSERT_TRUE(ok);
 
   /* Same effect on the same part: both receivers enabled. */
@@ -1203,12 +1203,12 @@ static void test_the_tapes_done_returns_at_the_dmas_terminal_count(void) {
   static const uint8_t commands[2] = {AP_QIC_CMD_SELECT, AP_QIC_CMD_READ};
   ap_time_t now = 0u;
   for (unsigned c = 0; c < 2u; c++) {
-    ap_board_write(&b, AP_TAPE_ADDR + 0u, commands[c], &ok);
-    ap_board_write(&b, AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
+    ap_board_write(&b, ap_board_instant(&b), AP_TAPE_ADDR + 0u, commands[c], &ok);
+    ap_board_write(&b, ap_board_instant(&b), AP_TAPE_ADDR + 1u, AP_SC499_CTL_REQUEST, &ok);
     now += ap_sc499_handshake_duration(AP_SC499_ENTRY_READY) +
            ap_sc499_handshake_duration(AP_SC499_ENTRY_DIRECTION);
     ap_board_advance(&b, now);
-    ap_board_write(&b, AP_TAPE_ADDR + 1u, 0u, &ok);
+    ap_board_write(&b, ap_board_instant(&b), AP_TAPE_ADDR + 1u, 0u, &ok);
     now += AP_SC499_T_CLOSE_MIN + AP_SC499_T_READY_REOPEN;
     ap_board_advance(&b, now);
   }
@@ -1217,7 +1217,7 @@ static void test_the_tapes_done_returns_at_the_dmas_terminal_count(void) {
   /* Step 3 of §1.11's sequence, and the bit goes down: "Write (any value) to
    * the tape controller register at BASE ADDRESS+2 (DMAGO)." */
   TEST_ASSERT_TRUE(b.tape.controller.done);
-  ap_board_write(&b, AP_TAPE_ADDR + 2u, 0u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_TAPE_ADDR + 2u, 0u, &ok);
   TEST_ASSERT_FALSE(b.tape.controller.done);
 
   /* Steps 2 and 4: the 8237 programmed for a short write-to-memory transfer on
@@ -1270,7 +1270,7 @@ static void test_the_tapes_done_returns_at_the_dmas_terminal_count(void) {
   TEST_ASSERT_TRUE(b.tape.controller.done);
   /* And the status register says so to a driver, which is where the firmware
    * reads it. */
-  TEST_ASSERT_TRUE((ap_board_read(&b, AP_TAPE_ADDR + 1u, &ok) &
+  TEST_ASSERT_TRUE((ap_board_read(&b, ap_board_instant(&b), AP_TAPE_ADDR + 1u, &ok) &
                     AP_SC499_ST_DONE) != 0u);
 
   /* **And the bytes are the cartridge's, in order.** DONE returning says the
@@ -1281,7 +1281,7 @@ static void test_the_tapes_done_returns_at_the_dmas_terminal_count(void) {
    * and reconstructing that here would be testing the reconstruction. */
   for (unsigned i = 0; i < BYTES; i++) {
     const uint32_t at = b.dma_last_write - (BYTES - 1u - i);
-    TEST_ASSERT_EQUAL_HEX8(cartridge[i], ap_board_read(&b, at, &ok));
+    TEST_ASSERT_EQUAL_HEX8(cartridge[i], ap_board_read(&b, ap_board_instant(&b), at, &ok));
   }
 }
 
@@ -1292,12 +1292,12 @@ static void test_the_tapes_done_returns_at_the_dmas_terminal_count(void) {
 static void test_the_dma_page_registers_store(void) {
   init_ds3000();
   bool ok = false;
-  ap_board_write(&ds3000, AP_DMAPAGE_ADDR + 7u, 0x5Au, &ok);
+  ap_board_write(&ds3000, ap_board_instant(&ds3000), AP_DMAPAGE_ADDR + 7u, 0x5Au, &ok);
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&ds3000, AP_DMAPAGE_ADDR + 7u,
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&ds3000, ap_board_instant(&ds3000), AP_DMAPAGE_ADDR + 7u,
                                               &ok));
   /* Aliased through the block, as every byte-wide range on this board is. */
-  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&ds3000, AP_DMAPAGE_ADDR + 0x17u,
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&ds3000, ap_board_instant(&ds3000), AP_DMAPAGE_ADDR + 0x17u,
                                               &ok));
   /* And on the DN3500 that address is **boot PROM**, because its PROM is 64 KB
    * where the DS3000's is 32 -- the whole of the DS3000's device block lives
@@ -1396,7 +1396,7 @@ static void test_the_fpa_trial_access_faults_rather_than_answering(void) {
   bool ok = true;
   init(&b);
 
-  (void)ap_board_read(&b, 0xFFF90000u, &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), 0xFFF90000u, &ok);
   TEST_ASSERT_FALSE(ok);
   TEST_ASSERT_EQUAL_UINT(1u, b.unmapped_reads);
   TEST_ASSERT_EQUAL_HEX32(0xFFF90000u, b.first_unmapped_read);
@@ -1404,7 +1404,7 @@ static void test_the_fpa_trial_access_faults_rather_than_answering(void) {
   /* A write there is refused too. An FPA space that swallowed writes while
    * faulting reads would be a stranger machine than either choice. */
   ok = true;
-  ap_board_write(&b, 0xFFF90000u, 0x5Au, &ok);
+  ap_board_write(&b, ap_board_instant(&b), 0xFFF90000u, 0x5Au, &ok);
   TEST_ASSERT_FALSE(ok);
   TEST_ASSERT_EQUAL_UINT(1u, b.unmapped_writes);
 }
@@ -1420,14 +1420,14 @@ static void test_a_key_press_into_a_mismatched_port_is_damaged(void) {
   init(&b);
   /* Eight bits and the receiver on, but the **wrong rate** -- 9600 against the
    * keyboard's 1200. */
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
                  AP_SIO_KEYBOARD_MR1, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u), 0xBBu, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u), 0xBBu, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
 
   TEST_ASSERT_TRUE(ap_board_key_press(&b, 0x4Bu));
   const uint8_t got =
-      ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
+      ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
   TEST_ASSERT_TRUE(ok);
   /* The byte still enters the FIFO -- the part does not discard it -- but it is
    * not what was sent. */
@@ -1448,31 +1448,31 @@ static void test_a_three_byte_access_is_served_and_round_trips(void) {
   ap_board_t *b = &width_board;
   init(b);
 
-  TEST_ASSERT_TRUE(ap_board_write_access(b, AP_BOARD_RAM_BASE + 1u, 3u,
+  TEST_ASSERT_TRUE(ap_board_write_access(b, ap_board_instant(b), AP_BOARD_RAM_BASE + 1u, 3u,
                                          0x00ABCDEFu));
   uint32_t value = 0xFFFFFFFFu;
   TEST_ASSERT_TRUE(
-      ap_board_read_access(b, AP_BOARD_RAM_BASE + 1u, 3u, &value));
+      ap_board_read_access(b, ap_board_instant(b), AP_BOARD_RAM_BASE + 1u, 3u, &value));
   TEST_ASSERT_EQUAL_HEX32(0x00ABCDEFu, value);
 
   /* Byte for byte, so a model that shifted the operand into the wrong lanes
    * fails here rather than round-tripping its own mistake. */
   for (unsigned i = 0; i < 3u; i++) {
     bool ok = false;
-    const uint8_t byte = ap_board_read(b, AP_BOARD_RAM_BASE + 1u + i, &ok);
+    const uint8_t byte = ap_board_read(b, ap_board_instant(b), AP_BOARD_RAM_BASE + 1u + i, &ok);
     TEST_ASSERT_TRUE(ok);
     TEST_ASSERT_EQUAL_HEX8((uint8_t)(0xABCDEFu >> ((2u - i) * 8u)), byte);
   }
 
   /* And the neighbours are untouched: three bytes means three. */
   bool ok = false;
-  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(b, AP_BOARD_RAM_BASE, &ok));
-  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(b, AP_BOARD_RAM_BASE + 4u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(b, ap_board_instant(b), AP_BOARD_RAM_BASE, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0u, ap_board_read(b, ap_board_instant(b), AP_BOARD_RAM_BASE + 4u, &ok));
 
   /* Nothing else is a size this part has. */
-  TEST_ASSERT_FALSE(ap_board_write_access(b, AP_BOARD_RAM_BASE, 0u, 0u));
-  TEST_ASSERT_FALSE(ap_board_write_access(b, AP_BOARD_RAM_BASE, 5u, 0u));
-  TEST_ASSERT_FALSE(ap_board_read_access(b, AP_BOARD_RAM_BASE, 5u, &value));
+  TEST_ASSERT_FALSE(ap_board_write_access(b, ap_board_instant(b), AP_BOARD_RAM_BASE, 0u, 0u));
+  TEST_ASSERT_FALSE(ap_board_write_access(b, ap_board_instant(b), AP_BOARD_RAM_BASE, 5u, 0u));
+  TEST_ASSERT_FALSE(ap_board_read_access(b, ap_board_instant(b), AP_BOARD_RAM_BASE, 5u, &value));
 }
 
 /* ## The selective clear locations, reached through the board
@@ -1495,7 +1495,7 @@ static void test_a_selective_clear_reaches_the_status_register(void) {
 
   /* A **word** write, which is what the diagnostic issues. */
   TEST_ASSERT_TRUE(ap_board_write_access(
-      &clear_board, AP_BOARDREG_SELECTIVE_CLEAR_ADDR +
+      &clear_board, ap_board_instant(&clear_board), AP_BOARDREG_SELECTIVE_CLEAR_ADDR +
                         AP_BOARDREG_CLEAR_BUS_ERROR_OFFSET,
       2u, 0x0000u));
 
@@ -1520,7 +1520,7 @@ static void test_peeking_memory_reads_it_by_physical_address(void) {
   ap_board_t b;
   init(&b);
 
-  TEST_ASSERT_TRUE(ap_board_write_access(&b, AP_BOARD_RAM_BASE + 0x40u, 4u,
+  TEST_ASSERT_TRUE(ap_board_write_access(&b, ap_board_instant(&b), AP_BOARD_RAM_BASE + 0x40u, 4u,
                                          0xDEADBEEFu));
 
   uint32_t value = 0;
@@ -1601,26 +1601,26 @@ static void test_the_fitted_card_is_the_one_that_answers(void) {
   ap_board_t board;
   init(&board);
   bool ok = false;
-  const uint8_t tape = ap_board_read(&board, AP_TAPE_ADDR + 1u, &ok);
+  const uint8_t tape = ap_board_read(&board, ap_board_instant(&board), AP_TAPE_ADDR + 1u, &ok);
   TEST_ASSERT_TRUE(ok);
 
   ap_board_attach_scsi(&board);
-  TEST_ASSERT_EQUAL_HEX8(0x0Fu, ap_board_read(&board, AP_TAPE_ADDR, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x0Fu, ap_board_read(&board, ap_board_instant(&board), AP_TAPE_ADDR, &ok));
   ap_board_advance(&board, AP_WD7000_T_LONG_DIAGNOSTIC);
-  TEST_ASSERT_EQUAL_HEX8(0x4Fu, ap_board_read(&board, AP_TAPE_ADDR, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x4Fu, ap_board_read(&board, ap_board_instant(&board), AP_TAPE_ADDR, &ok));
   /* The card decodes eight addresses and answers on four: `+4` is not an
    * alias of `+0`, it is an address the part does not drive -- the same shape
    * the SC-499 in this slot was measured to have. */
-  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&board, AP_TAPE_ADDR + 4u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&board, ap_board_instant(&board), AP_TAPE_ADDR + 4u, &ok));
   /* And the eight-byte period repeats through the block. */
-  TEST_ASSERT_EQUAL_HEX8(0x4Fu, ap_board_read(&board, AP_TAPE_ADDR + 8u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x4Fu, ap_board_read(&board, ap_board_instant(&board), AP_TAPE_ADDR + 8u, &ok));
   TEST_ASSERT_EQUAL_HEX8(AP_WD7000_DIAG_OK,
-                         ap_board_read(&board, AP_TAPE_ADDR + 1u, &ok));
+                         ap_board_read(&board, ap_board_instant(&board), AP_TAPE_ADDR + 1u, &ok));
   TEST_ASSERT_TRUE(ok);
 
   /* And the tape is not reachable through it any more, which is the point of
    * the exchange. */
-  TEST_ASSERT_NOT_EQUAL(tape, ap_board_read(&board, AP_TAPE_ADDR + 1u, &ok));
+  TEST_ASSERT_NOT_EQUAL(tape, ap_board_read(&board, ap_board_instant(&board), AP_TAPE_ADDR + 1u, &ok));
 }
 
 /* Sixteen I/O locations and not one more: `ETHERNET.md` finding 2 gives the
@@ -1680,17 +1680,17 @@ static void test_the_probe_bytes_come_back_through_the_bus(void) {
   init(&board);
   ap_board_attach_ethernet(&board, true, NULL);
 
-  ap_board_write(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL, 0u, &ok);
+  ap_board_write(&board, ap_board_instant(&board), AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL, 0u, &ok);
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_EQUAL_HEX8(
-      0xC0u, ap_board_read(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_STATUS,
+      0xC0u, ap_board_read(&board, ap_board_instant(&board), AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_STATUS,
                            &ok));
   TEST_ASSERT_TRUE(ok);
 
-  ap_board_write(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
+  ap_board_write(&board, ap_board_instant(&board), AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
                  AP_3C505_HCR_DIR, &ok);
   TEST_ASSERT_EQUAL_HEX8(
-      0x50u, ap_board_read(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_STATUS,
+      0x50u, ap_board_read(&board, ap_board_instant(&board), AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_STATUS,
                            &ok));
 }
 
@@ -1723,7 +1723,7 @@ static void test_the_ethernet_interrupt_reaches_irq10_only_when_fitted(void) {
   TEST_ASSERT_EQUAL_HEX8(0u, board.interrupts.slave.pins & slave_bit);
 
   /* The enable alone is not the condition either. */
-  ap_board_write(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
+  ap_board_write(&board, ap_board_instant(&board), AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
                  AP_3C505_HCR_CMDE, &ok);
   TEST_ASSERT_TRUE(ok);
   ap_board_sample_interrupts(&board);
@@ -1737,7 +1737,7 @@ static void test_the_ethernet_interrupt_reaches_irq10_only_when_fitted(void) {
 
   /* And it is a *level*: the host reading the byte takes the condition away
    * without anyone telling the controller. */
-  (void)ap_board_read(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_COMMAND,
+  (void)ap_board_read(&board, ap_board_instant(&board), AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_COMMAND,
                       &ok);
   ap_board_sample_interrupts(&board);
   TEST_ASSERT_EQUAL_HEX8(0u, board.interrupts.slave.pins & slave_bit);
@@ -1778,7 +1778,7 @@ static void test_the_ethernet_dma_request_reaches_channel_six(void) {
 
   /* `DMAE` set, download direction: the card asks on channel 2 of controller
    * 2. */
-  ap_board_write(&board, AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
+  ap_board_write(&board, ap_board_instant(&board), AP_BOARD_ETHERNET_ADDR + AP_3C505_REG_CONTROL,
                  AP_3C505_HCR_DMAE, &ok);
   TEST_ASSERT_TRUE(ok);
   ap_board_bus_tick(&board);
@@ -1808,26 +1808,26 @@ static void test_an_option_rom_answers_where_the_prom_scan_looks(void) {
 
   /* Empty first: the pull-ups, which is what "no card" means. */
   TEST_ASSERT_EQUAL_HEX8(
-      0xFFu, ap_board_read(&board, AP_BOARD_ATBUS_MEMORY_BASE, &ok));
+      0xFFu, ap_board_read(&board, ap_board_instant(&board), AP_BOARD_ATBUS_MEMORY_BASE, &ok));
 
   static const uint8_t image[4] = {0x33u, 0x5Eu, 0x91u, 0xB6u};
   ap_board_attach_option_rom(&board, image, sizeof image,
                              AP_BOARD_ATBUS_MEMORY_BASE);
   for (unsigned i = 0; i < sizeof image; i++) {
     TEST_ASSERT_EQUAL_HEX8(
-        image[i], ap_board_read(&board, AP_BOARD_ATBUS_MEMORY_BASE + i, &ok));
+        image[i], ap_board_read(&board, ap_board_instant(&board), AP_BOARD_ATBUS_MEMORY_BASE + i, &ok));
   }
 
   /* And only where it is: one byte past the image is the empty window again,
    * so a short ROM does not shadow the rest of the scan. */
   TEST_ASSERT_EQUAL_HEX8(
       0xFFu,
-      ap_board_read(&board, AP_BOARD_ATBUS_MEMORY_BASE + sizeof image, &ok));
+      ap_board_read(&board, ap_board_instant(&board), AP_BOARD_ATBUS_MEMORY_BASE + sizeof image, &ok));
 
   /* Detached, the window is empty again. */
   ap_board_attach_option_rom(&board, NULL, 0u, 0u);
   TEST_ASSERT_EQUAL_HEX8(
-      0xFFu, ap_board_read(&board, AP_BOARD_ATBUS_MEMORY_BASE, &ok));
+      0xFFu, ap_board_read(&board, ap_board_instant(&board), AP_BOARD_ATBUS_MEMORY_BASE, &ok));
 }
 
 /* **A bound is a lower bound, and that is the only property that matters.**
@@ -2278,11 +2278,11 @@ static void test_an_absolute_pointing_packet_goes_out_whole(void) {
   ap_board_t b;
   bool ok = false;
   init(&b);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
                  AP_SIO_KEYBOARD_MR1, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
                  AP_SIO_KEYBOARD_CSR, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
 
   /* It is the *device* that decides which leading byte goes out, not a
    * command, so the board is put in absolute mode first. */
@@ -2300,7 +2300,7 @@ static void test_an_absolute_pointing_packet_goes_out_whole(void) {
     clock_out_one_byte(&b);
     TEST_ASSERT_EQUAL_HEX8(
         expected[i],
-        ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
+        ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok));
     TEST_ASSERT_TRUE(ok);
   }
 }
@@ -2409,9 +2409,9 @@ static void test_the_series_2500_control_block_reads_back_what_it_is_given(void)
                          ap_board_region(&b, 0x0202D4u));
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_S2500_CONTROL,
                          ap_board_region(&b, 0x0202CCu));
-  ap_board_write(&b, 0x0202D4u, 0x01u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), 0x0202D4u, 0x01u, &ok);
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, 0x0202D4u, &ok) & 0x0Fu);
+  TEST_ASSERT_EQUAL_HEX8(0x01u, ap_board_read(&b, ap_board_instant(&b), 0x0202D4u, &ok) & 0x0Fu);
   TEST_ASSERT_TRUE(ok);
 
   /* The documented pair beside it, and the SIO the map already had -- so the
@@ -2744,7 +2744,7 @@ static void test_resetting_the_on_board_devices_spares_the_sio_and_the_clock(voi
   b.sio.port[0].channel[0].mr[0] = 0x13u;
 
   bool ok = false;
-  ap_board_write(&b, AP_BOARDREG_CPU_CONTROL_ADDR + 1u,
+  ap_board_write(&b, ap_board_instant(&b), AP_BOARDREG_CPU_CONTROL_ADDR + 1u,
                  (uint8_t)AP_BOARDREG_CONTROL_RESET_DEVICES, &ok);
   TEST_ASSERT_TRUE(ok);
 
@@ -2773,7 +2773,7 @@ static void test_a_control_write_without_rsa_resets_nothing(void) {
   init(&b);
   b.interrupts.master.imr = 0x5Au;
   bool ok = false;
-  ap_board_write(&b, AP_BOARDREG_CPU_CONTROL_ADDR + 1u,
+  ap_board_write(&b, ap_board_instant(&b), AP_BOARDREG_CPU_CONTROL_ADDR + 1u,
                  (uint8_t)AP_BOARDREG_CONTROL_NMI_ENABLE, &ok);
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_EQUAL_HEX8(0x5Au, b.interrupts.master.imr);
@@ -2840,11 +2840,11 @@ static void test_the_buffered_burst_reaches_the_port_in_order(void) {
   ap_board_t b;
   bool ok = false;
   init(&b);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_MR_A * 2u),
                  AP_SIO_KEYBOARD_MR1, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_SR_CSR_A * 2u),
                  AP_SIO_KEYBOARD_CSR, &ok);
-  ap_board_write(&b, AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_CR_A * 2u), 0x01u, &ok);
 
   static const unsigned KEYS = 5u;
   for (unsigned i = 0; i < KEYS; i++) {
@@ -2857,7 +2857,7 @@ static void test_the_buffered_burst_reaches_the_port_in_order(void) {
   for (unsigned i = 0; i < KEYS; i++) {
     ap_board_advance(&b, now);
     const uint8_t got =
-        ap_board_read(&b, AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
+        ap_board_read(&b, ap_board_instant(&b), AP_SIO1_ADDR + (AP_MC68681_RB_TB_A * 2u), &ok);
     TEST_ASSERT_EQUAL_HEX8((uint8_t)(0x40u + i), got);
     now += AP_KBD_TX_CHARACTER;
   }
@@ -3006,10 +3006,10 @@ static void test_the_desktop_visualization_space_is_named_on_the_ds5500(void) {
 
   /* And it still refuses, because naming is not modelling. */
   bool ok = true;
-  (void)ap_board_read(&b, AP_BOARD_DESKTOP_VIS_BASE, &ok);
+  (void)ap_board_read(&b, ap_board_instant(&b), AP_BOARD_DESKTOP_VIS_BASE, &ok);
   TEST_ASSERT_FALSE(ok);
   ok = true;
-  ap_board_write(&b, AP_BOARD_DESKTOP_VIS_BASE, 0x5Au, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_BOARD_DESKTOP_VIS_BASE, 0x5Au, &ok);
   TEST_ASSERT_FALSE(ok);
 
   /* Counted under its own name rather than swelling the unmapped tally, which
@@ -3069,7 +3069,7 @@ static void test_the_io_protection_map_accepts_the_proms_reset_clears(void) {
 
   for (uint32_t offset = 0u; offset < 16u; offset++) {
     bool ok = false;
-    ap_board_write(&b, AP_IOPROT_BASE + offset, 0xFFu, &ok);
+    ap_board_write(&b, ap_board_instant(&b), AP_IOPROT_BASE + offset, 0xFFu, &ok);
     TEST_ASSERT_TRUE(ok);
   }
   TEST_ASSERT_EQUAL_UINT(16u, b.region_writes[AP_BOARD_REGION_IO_PROTECTION_MAP]);
@@ -3086,20 +3086,20 @@ static void test_an_io_protection_map_byte_reads_back_what_was_written(void) {
                                        &START, 0x012345u, AP_MODEL_DN5500));
 
   bool ok = false;
-  ap_board_write(&b, AP_IOPROT_BASE, 0x5Au, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_IOPROT_BASE, 0x5Au, &ok);
   TEST_ASSERT_TRUE(ok);
-  ap_board_write(&b, AP_IOPROT_LIMIT, 0xA5u, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_IOPROT_LIMIT, 0xA5u, &ok);
   TEST_ASSERT_TRUE(ok);
 
   ok = false;
-  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, AP_IOPROT_BASE, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, ap_board_instant(&b), AP_IOPROT_BASE, &ok));
   TEST_ASSERT_TRUE(ok);
-  TEST_ASSERT_EQUAL_HEX8(0xA5u, ap_board_read(&b, AP_IOPROT_LIMIT, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0xA5u, ap_board_read(&b, ap_board_instant(&b), AP_IOPROT_LIMIT, &ok));
   TEST_ASSERT_TRUE(ok);
 
   /* Two ends of 64 KB are two bytes, not one aliased onto itself -- the
    * failure a region sized by a mask narrower than the placement would give. */
-  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, AP_IOPROT_BASE, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x5Au, ap_board_read(&b, ap_board_instant(&b), AP_IOPROT_BASE, &ok));
 }
 
 /* `011500`-`0115FF`, which no document this project holds mentions at all.
@@ -3146,14 +3146,14 @@ static void test_the_11500_block_accepts_invols_eight_bytes(void) {
 
   for (uint32_t i = 0u; i < 8u; i++) {
     bool ok = false;
-    ap_board_write(&b, 0x011500u + i, 0xFFu, &ok);
+    ap_board_write(&b, ap_board_instant(&b), 0x011500u + i, 0xFFu, &ok);
     TEST_ASSERT_TRUE(ok);
   }
   bool ok = false;
-  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, 0x011507u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0xFFu, ap_board_read(&b, ap_board_instant(&b), 0x011507u, &ok));
   TEST_ASSERT_TRUE(ok);
   /* And the ninth byte is untouched, so the loop's bound is the model's too. */
-  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_board_read(&b, 0x011508u, &ok));
+  TEST_ASSERT_EQUAL_HEX8(0x00u, ap_board_read(&b, ap_board_instant(&b), 0x011508u, &ok));
 }
 
 /* No other model has it, and a DN3500 must still refuse: an undocumented range
@@ -3164,7 +3164,7 @@ static void test_no_other_model_has_the_11500_block(void) {
   TEST_ASSERT_NOT_EQUAL_INT(AP_BOARD_REGION_DS5500_11500,
                             ap_board_region(&b, 0x011500u));
   bool ok = true;
-  ap_board_write(&b, 0x011500u, 0xFFu, &ok);
+  ap_board_write(&b, ap_board_instant(&b), 0x011500u, 0xFFu, &ok);
   TEST_ASSERT_FALSE(ok);
   TEST_ASSERT_EQUAL_UINT(0u, b.ds5500_11500_bytes);
 }
@@ -3178,7 +3178,7 @@ static void test_no_other_model_has_an_io_protection_map(void) {
   TEST_ASSERT_NOT_EQUAL_INT(AP_BOARD_REGION_IO_PROTECTION_MAP,
                             ap_board_region(&b, AP_IOPROT_BASE));
   bool ok = true;
-  ap_board_write(&b, AP_IOPROT_BASE, 0x5Au, &ok);
+  ap_board_write(&b, ap_board_instant(&b), AP_IOPROT_BASE, 0x5Au, &ok);
   TEST_ASSERT_FALSE(ok);
 }
 
@@ -3327,15 +3327,15 @@ static void test_the_cache_ram_window_holds_what_a_program_writes(void) {
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CACHE_RAM,
                          ap_board_region(&dn4000, AP_CACHERAM_DATA_LIMIT));
   bool ok = false;
-  ap_board_write(&dn4000, AP_CACHERAM_DATA_BASE, 0xA5u, &ok);
+  ap_board_write(&dn4000, ap_board_instant(&dn4000), AP_CACHERAM_DATA_BASE, 0xA5u, &ok);
   TEST_ASSERT_TRUE(ok);
-  ap_board_write(&dn4000, AP_CACHERAM_DATA_LIMIT, 0x5Au, &ok);
+  ap_board_write(&dn4000, ap_board_instant(&dn4000), AP_CACHERAM_DATA_LIMIT, 0x5Au, &ok);
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_EQUAL_HEX8(0xA5u,
-                         ap_board_read(&dn4000, AP_CACHERAM_DATA_BASE, &ok));
+                         ap_board_read(&dn4000, ap_board_instant(&dn4000), AP_CACHERAM_DATA_BASE, &ok));
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_EQUAL_HEX8(0x5Au,
-                         ap_board_read(&dn4000, AP_CACHERAM_DATA_LIMIT, &ok));
+                         ap_board_read(&dn4000, ap_board_instant(&dn4000), AP_CACHERAM_DATA_LIMIT, &ok));
   TEST_ASSERT_TRUE(ok);
 }
 
@@ -3349,10 +3349,10 @@ static void test_the_condition_code_window_holds_what_a_program_writes(void) {
   TEST_ASSERT_EQUAL_UINT(AP_BOARD_REGION_CACHE_CC_RAM,
                          ap_board_region(&dn4000, AP_CACHERAM_CC_LIMIT));
   bool ok = false;
-  ap_board_write(&dn4000, AP_CACHERAM_CC_BASE + 3u, 0x01u, &ok);
+  ap_board_write(&dn4000, ap_board_instant(&dn4000), AP_CACHERAM_CC_BASE + 3u, 0x01u, &ok);
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_EQUAL_HEX8(
-      0x01u, ap_board_read(&dn4000, AP_CACHERAM_CC_BASE + 3u, &ok));
+      0x01u, ap_board_read(&dn4000, ap_board_instant(&dn4000), AP_CACHERAM_CC_BASE + 3u, &ok));
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_EQUAL_HEX32(0x00000001u, ap_cacheram_cc_word(&dn4000.cache, 0u));
 }
@@ -3433,7 +3433,7 @@ static void test_clearing_the_condition_code_window_invalidates_the_cache(
   TEST_ASSERT_TRUE(ap_cacheram_lookup(&dn4000.cache, 0x00040000u, &got));
   bool ok = false;
   for (uint32_t a = AP_CACHERAM_CC_BASE; a <= AP_CACHERAM_CC_LIMIT; a++) {
-    ap_board_write(&dn4000, a, 0x00u, &ok);
+    ap_board_write(&dn4000, ap_board_instant(&dn4000), a, 0x00u, &ok);
     TEST_ASSERT_TRUE(ok);
   }
   TEST_ASSERT_FALSE(ap_cacheram_lookup(&dn4000.cache, 0x00040000u, &got));
@@ -3497,7 +3497,7 @@ static void test_the_s2500_control_block_reaches_the_hash_only_where_it_exists(
   const uint64_t dn3500_before = ap_board_state_hash(&dn3500);
 
   bool ok = false;
-  ap_board_write(&s2500, 0x0202D4u, 0x01u, &ok);
+  ap_board_write(&s2500, ap_board_instant(&s2500), 0x0202D4u, 0x01u, &ok);
   TEST_ASSERT_TRUE(ok);
   TEST_ASSERT_NOT_EQUAL_UINT64(s2500_before, ap_board_state_hash(&s2500));
 

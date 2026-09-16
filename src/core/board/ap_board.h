@@ -523,6 +523,19 @@ typedef struct ap_board {
   ap_sio_t sio;
   ap_nodeid_t node_id;
   ap_disk_t disk;
+  /* The instant `ap_board_advance` last carried this board to.
+   *
+   * **Named `advanced_to` and not `now` deliberately**: it is not a device
+   * cursor, and `check_cursor_census` counts `ap_time_t now;` to keep the six
+   * that are from growing to seven unnoticed. Calling this one `now` would have
+   * hidden a real cursor behind a book-keeping field.
+   *
+   * Not hashed, and that is a claim rather than an omission: it is a *record*
+   * of the advance rather than state the advance produces, derived entirely
+   * from the instant the machine passes in, so two boards that differ in it
+   * differ in nothing a program can observe. `ap_board_instant` reads it. */
+  ap_time_t advanced_to;
+
   ap_tape_t tape;
   /* The SCSI host adapter, in the cartridge tape's slot. Absent until
    * `ap_board_attach_scsi` fits it, and fitting it *removes* the tape: the two
@@ -1496,12 +1509,48 @@ void ap_board_advance(ap_board_t *board, ap_time_t now);
  * advancing would stay invisible until something timed out. */
 void ap_board_advance_one(ap_board_t *board, uint32_t address, ap_time_t now);
 
-/* Read or write one byte. `ok` reports whether anything answered; an unmapped
- * access is counted and reported rather than quietly returning zero. */
-[[nodiscard]] uint8_t ap_board_read(ap_board_t *board, uint32_t address,
-                                    bool *ok);
-void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
-                    bool *ok);
+/* The instant this board was last advanced to.
+ *
+ * Exists so a caller with no instant of its own -- every test that pokes a
+ * register, and nothing in `src/` -- can name one that is correct by being the
+ * board's own: advancing a device to where the board already is does nothing.
+ * Production callers pass the *access's* instant instead, which is the whole
+ * point of the parameter and is why this is not the default. */
+[[nodiscard]] ap_time_t ap_board_instant(const ap_board_t *board);
+
+/* ## Why these take an instant, and what it cost not to
+ *
+ * Six parts on this board date their deadlines from a stored `now` that only an
+ * advance refreshes -- `omti->completion_at = omti->now + duration` is the
+ * shape, and `ap_kbd`, `ap_graphics`, `ap_sc499`, `ap_scsi` and `ap_wd7000` all
+ * repeat it. The cursor was kept fresh by the *schedule* rather than by the
+ * access: every schedule this core has run advances every device at least once
+ * an instruction, so the stored instant happened to be the access's.
+ *
+ * "Happened to be" is the defect. A schedule that skipped an advance left a
+ * cursor behind and completed a device's next command **early** -- measured,
+ * and bisected to between 100 M and 200 M instructions -- and the same shape
+ * had already been cured twice, in the PTM and the DUART, by taking the stored
+ * instant away and letting the caller name it. The exact-skip item carried this
+ * as its prerequisite for a year and named the cost: the instant has to reach
+ * here, which is every call site at once and not a part at a time, because
+ * `graphics_status` reads the beam from the register-read path and a register
+ * read has no instant of its own.
+ *
+ * So it reaches here. The addressed device is advanced to `now` before the
+ * access touches it, which makes the cursor current **by construction** rather
+ * than by the cadence of a schedule -- and a schedule is then free to skip
+ * advances without the hazard, which is what the prerequisite was for.
+ *
+ * `now` is second because it belongs to the board's state rather than to the
+ * address: it says *when* this board is being accessed, before saying where.
+ *
+ * `ok` reports whether anything answered; an unmapped access is counted and
+ * reported rather than quietly returning zero. */
+[[nodiscard]] uint8_t ap_board_read(ap_board_t *board, ap_time_t now,
+                                    uint32_t address, bool *ok);
+void ap_board_write(ap_board_t *board, ap_time_t now, uint32_t address,
+                    uint8_t value, bool *ok);
 
 /* A write of `count` bytes as the *processor* issued it, big-endian, with the
  * most significant byte at `address`.
@@ -1518,16 +1567,18 @@ void ap_board_write(ap_board_t *board, uint32_t address, uint8_t value,
  * The width was known at the machine and thrown away at this boundary, which is
  * why it is passed now. `count` is 1, 2 or 4; anything else is refused rather
  * than looped, because a size this bus cannot issue is a caller's mistake. */
-[[nodiscard]] bool ap_board_write_access(ap_board_t *board, uint32_t address,
-                                         unsigned count, uint32_t value);
+[[nodiscard]] bool ap_board_write_access(ap_board_t *board, ap_time_t now,
+                                         uint32_t address, unsigned count,
+                                         uint32_t value);
 
 /* The read side of the same, and it matters for the same region and one more
  * reason: a read of the display controller's image memory is a *cycle*. It
  * comes from the source plane rather than plane 0, and in most modes it latches
  * while reading -- so splitting a word read into two byte reads would latch
  * twice and leave the guard latch holding a byte pair rather than a word. */
-[[nodiscard]] bool ap_board_read_access(ap_board_t *board, uint32_t address,
-                                        unsigned count, uint32_t *out);
+[[nodiscard]] bool ap_board_read_access(ap_board_t *board, ap_time_t now,
+                                        uint32_t address, unsigned count,
+                                        uint32_t *out);
 
 /* An observer's read of main memory, and of nothing else.
  *

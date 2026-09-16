@@ -180,11 +180,11 @@ static void test_the_reset_instruction_resets_the_board_but_not_the_sio(void) {
   /* `RESET` is privileged, and `ap_machine_reset` starts in supervisor state.
    * `4E70` then a `NOP` to land on. */
   bool ok = false;
-  ap_board_write(&board, AP_BOARD_RAM_BASE + 0u, 0x4Eu, &ok);
+  ap_board_write(&board, ap_board_instant(&board), AP_BOARD_RAM_BASE + 0u, 0x4Eu, &ok);
   TEST_ASSERT_TRUE(ok);
-  ap_board_write(&board, AP_BOARD_RAM_BASE + 1u, 0x70u, &ok);
-  ap_board_write(&board, AP_BOARD_RAM_BASE + 2u, 0x4Eu, &ok);
-  ap_board_write(&board, AP_BOARD_RAM_BASE + 3u, 0x71u, &ok);
+  ap_board_write(&board, ap_board_instant(&board), AP_BOARD_RAM_BASE + 1u, 0x70u, &ok);
+  ap_board_write(&board, ap_board_instant(&board), AP_BOARD_RAM_BASE + 2u, 0x4Eu, &ok);
+  ap_board_write(&board, ap_board_instant(&board), AP_BOARD_RAM_BASE + 3u, 0x71u, &ok);
 
   board.interrupts.master.imr = 0x5Au;
   board.dma_page.page[0] = 0xA5u;
