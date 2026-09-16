@@ -20522,7 +20522,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | 68030 instruction step (fetch → decode → execute → advance) | **complete**: the `RESET` instruction costs its **518 clocks** as of 2026-09-07 -- `[030]` §11.6.17's `518(0/0/0)` and `[PRM]`'s "Asserts the RSTO signal for 512 ... clock periods", two independent documents for a figure the arm was charging zero for. The boot PROM does not execute one in the identity window, which the byte-identical clock total proves rather than assumes: **a bit field accesses only the bytes it spans as of 2026-09-06** -- `[PRM]`'s note on every bit field page gives the shapes (byte, word, 3-byte, long word, and long word with byte for a five-byte span) and `[030]` §11.6.14 prices them at one operand read under five bytes and two at five. This core read **one byte per bit** -- thirty-two accesses for a 32-bit field, and a read-modify-write per bit on the write path, so a field written across a device register read and rewrote it eight times a byte. The values were always right, which is why every existing test passed. Measured at 2 and 3 bus reads after, against 33 and 33 before: every one of the 65,536 opcode words executes, and **no word in the space reports `UNIMPLEMENTED`** — a swept property, not a list. The sweep extends through the coprocessor extension space and the MMU extension word, where *which instruction a word is* lives in the extension rather than the opcode; both found real gaps (664 coprocessor forms, 94,316 MMU forms) that an opcode-only sweep could not see. This row used to enumerate the dozen families that worked and end "everything else reports unimplemented, including divide-by-zero", which was stale by the whole instruction set | `step_suite`, 328 tests -- the newest being the **MC68040's** `PFLUSH`, which now flushes the ATCs it has been counting |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
-| 68030 logical memory access path (cache → MMU → bus) | working, reads and writes. **The read half of a read-modify-write is forced to miss the data cache** — `[030]` §6.1.2.2, "always forced to miss", and §11.4's note says it again from the timing end. This core passed a literal `false` for the RMC flag into the cache, so a `TAS` or `CAS` whose operand was already cached answered from the line: no external cycle, and a semaphore read that could not see another master's write. The same constant also hid the RMC from `CBREQ` suppression and *cleared* `bus->rmc` on the read cycle of the indivisible pair. Corrected 2026-09-06 | `access_suite`, 23 tests, `MC68030 User's Manual 3ed` §6.1 -- the newest telling a translation's refusal apart from the bus's, which is the 68040 frame's `ATC` bit |
+| 68030 logical memory access path (cache → MMU → bus) | working, reads and writes. **The read half of a read-modify-write is forced to miss the data cache** — `[030]` §6.1.2.2, "always forced to miss", and §11.4's note says it again from the timing end. This core passed a literal `false` for the RMC flag into the cache, so a `TAS` or `CAS` whose operand was already cached answered from the line: no external cycle, and a semaphore read that could not see another master's write. The same constant also hid the RMC from `CBREQ` suppression and *cleared* `bus->rmc` on the read cycle of the indivisible pair. Corrected 2026-09-06 | `access_suite`, 24 tests, `MC68030 User's Manual 3ed` §6.1 -- the newest telling a translation's refusal apart from the bus's, which is the 68040 frame's `ATC` bit |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
 | 68030 instruction decode dispatcher (+ MOVEQ, total length) | working — 89.9% of the 16-bit space classified, and every claimed instruction sized | `decode_suite`, 17 tests including two full 65536-word sweeps |
 | 68030 family 1111 (coprocessor interface, MMU instruction dispatch) | decode working — the opcode map is now complete | `coproc_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and `MC68030 User's Manual 3ed` §9.7.6 |
@@ -21350,6 +21350,50 @@ the hardware.
 | Approximation | What it does instead | Why | Cost to close |
 | --- | --- | --- | --- |
 | 68030 `RTE` from a bus fault frame | **Re-executes** the faulted instruction from the start rather than resuming mid-instruction | The real part resumes from the internal registers it saved, and this model has none to save | Needs the long frame's internal registers, which need a microsequencer model. Exact meanwhile when the faulted access precedes any side effect — every case the boot PROM reaches — and wrong for an instruction that had already committed one |
+
+## The 68040's search is priced too, and a test had to come first (2026-09-16)
+
+The other half of the same defect, on the path a DS5500 translates through.
+`translate_040` reported `fetches` and charged no clocks, exactly as the
+68030's walk did, so a 68040's MMU misses were free after the 68030's had
+stopped being.
+
+**It was built, reverted, and rebuilt, and the middle step is the point.** The
+first attempt compiled and passed the whole suite — and *proved nothing*. The
+DS5500 identity harness performs **zero** 68040 table searches: it stops at the
+MD prompt with translation never enabled, so its report reads `0 descriptor
+fetch(es)` and its hash was byte-identical with the change in and out. So was
+the DN3500's, which walks the other tree. **An identity harness cannot catch a
+timing change on a path it never walks**, and landing on that basis would have
+been shipping an unexercised change. It went back on the plan with the reason.
+
+**The test came first the second time, and failed.** `access_suite` builds the
+68040 tree the way this suite builds everything — synthesised descriptors rather
+than a memory image — from `m68040_mmu_suite`'s: root at `0x1000` to `0x2000` to
+`0x3000` to a page frame at `0x50000`, with a logical address whose three index
+fields are all zero so each descriptor sits at its table's base. Then the same
+comparison the 68030 test makes: the same address read cold and then with the
+translation resident and only the cache cleared, so the two differ by the search
+and nothing else. It failed on the unpriced code with "a 68040 table search must
+cost the bus time its fetches take", and passes on the priced code.
+
+**`[040]` Table 3-1 is the price**, not §11.7 by analogy: it names a plain read
+for a descriptor and a "Locked RMW Access" for a history-bit update, and the
+update callback already carried a `locked` flag for exactly that distinction, so
+an unlocked update is the write alone. `translate_040` loses its `const` —
+running a cycle writes the bus the context owns — and both callbacks are
+wrapped, carrying the inner pair because this path has two of each: through the
+data cache where the part has one (§4.3.3), and straight to the board otherwise.
+
+**Both identity hashes are unchanged**, `B84BEA19E9D3EB16` and
+`08591C51E9D4372F`, which is the predicted result rather than a null one: no
+boot this project runs performs a 68040 table search. The value of saying so is
+that the next person to move this code knows the harness will stay silent about
+it.
+
+*Verification: `access_suite` 23 → 24, the new test written before the change
+and failing on it. `ctest` 153/153 on both presets; both identities re-run on
+the release build.*
 
 ## A translation table search cost nothing, and now costs what it takes
 ## (2026-09-16)

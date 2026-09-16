@@ -40,68 +40,6 @@ static ap_m68030_mmu_fault_t search_fault_reason(
   return AP_M68030_MMU_FAULT_PROTECTION;
 }
 
-/* The 68040's MMU, when the part has one, in front of the 68030's whole
- * translation path. Returns false when this part has no 68040 MMU, which is
- * every model but the DS5500 -- and that is what keeps the 68030's translation,
- * and its state hash, untouched by this file's existence.
- *
- * `[040]` §3.1.3 is why it runs even with paged translation disabled: the
- * transparent translation registers "operate independently of the E-bit in the
- * TCR", so a 68040 always has something to ask. */
-static bool translate_040(const ap_m68030_access_ctx_t *access,
-                          uint32_t logical, unsigned function_code, bool write,
-                          uint32_t *physical, bool *cache_inhibit,
-                          ap_m68040_cache_mode_t *cache_mode,
-                          unsigned *fetches, bool *fault,
-                          ap_m68030_mmu_fault_t *reason) {
-  if (access->mmu_040 == NULL) {
-    return false;
-  }
-  /* §4.3.3: where the part has a data cache, the search reads through it. */
-  const bool through_cache = access->table_cache_040 != NULL;
-  const ap_m68040_mmu_result_t r = ap_m68040_mmu_translate(
-      access->mmu_040, logical, function_code, write,
-      through_cache ? ap_m68030_access_table_fetch_040 : access->table_fetch_040,
-      through_cache && access->table_update_040 != NULL
-          ? ap_m68030_access_table_update_040
-          : access->table_update_040,
-      through_cache ? (void *)(uintptr_t)access : access->context);
-  *fetches = r.fetches;
-  if (r.status == AP_M68040_MMU_FAULT) {
-    *fault = true;
-    /* The reason, mapped onto the report's existing vocabulary rather than
-     * reported as "cached" for everything -- which is what this did, and it
-     * made every 68040 fault read as an ATC entry that was already known bad
-     * even when the tables had just been walked. A diagnosis is only worth
-     * having if it can be wrong. */
-    switch (r.reason) {
-    case AP_M68040_MMU_FAULT_NOT_RESIDENT:
-      *reason = AP_M68030_MMU_FAULT_INVALID;
-      break;
-    case AP_M68040_MMU_FAULT_PROTECTION:
-      *reason = AP_M68030_MMU_FAULT_PROTECTION;
-      break;
-    case AP_M68040_MMU_FAULT_SEARCH_BUS:
-      *reason = AP_M68030_MMU_FAULT_SEARCH_BUS;
-      break;
-    case AP_M68040_MMU_FAULT_CACHED:
-    case AP_M68040_MMU_FAULT_NONE:
-      *reason = AP_M68030_MMU_FAULT_CACHED;
-      break;
-    }
-    return true;
-  }
-  *physical = r.physical;
-  /* §3.2.2.3's four modes. The 68030 path takes one bit, so the two
-   * noncachable ones inhibit and the two cachable ones do not; the 68040's own
-   * caches take the mode, because write-through and copyback write differently.
-   * *Until 2026-09-15 this read "Write-through against copyback is not
-   * distinguished because the 68040's caches are attached to no CPU".* */
-  *cache_mode = r.cache_mode;
-  *cache_inhibit = r.cache_mode == AP_M68040_CM_NONCACHABLE_SERIALIZED ||
-                   r.cache_mode == AP_M68040_CM_NONCACHABLE;
-  return true;
-}
 
 /* ===========================================================================
  * The 68040's own caches, `[040]` §4.
@@ -490,6 +428,121 @@ static bool search_fetch(void *context, uint32_t physical, bool long_format,
                                      long_format, out);
 }
 
+/* The same for the 68040's search, which reaches memory through a different
+ * pair of callbacks and had the same defect: `translate_040` reported its
+ * `fetches` and charged no clocks, so a DS5500's MMU misses were free where a
+ * DN3500's had just stopped being.
+ *
+ * `[040]` Table 3-1 names the two accesses a search makes -- a plain read for a
+ * descriptor and a "Locked RMW Access" for a history-bit update -- and the
+ * update callback already carries `locked` for exactly that, so the cycles run
+ * here follow that table rather than §11.7 by analogy.
+ *
+ * The inner callback and its context are carried rather than assumed, because
+ * this path has two of each: through the data cache where the part has one
+ * (§4.3.3), and straight to the board otherwise. */
+typedef struct {
+  ap_m68030_access_ctx_t *access;
+  ap_m68040_fetch_fn fetch;
+  ap_m68040_update_fn update;
+  void *inner;
+  uint32_t clocks;
+} table_search_040_t;
+
+static bool search_fetch_040(void *context, uint32_t address, uint32_t *value) {
+  table_search_040_t *search = (table_search_040_t *)context;
+  search->clocks += descriptor_cycle(search->access, address, true);
+  return search->fetch(search->inner, address, value);
+}
+
+static bool search_update_040(void *context, uint32_t address, bool set_used,
+                              bool set_modified, bool locked) {
+  table_search_040_t *search = (table_search_040_t *)context;
+  /* Table 3-1's locked read-modify-write is a read and a write, as §11.7's is
+   * on the other part. An unlocked update is the write alone. */
+  if (locked) {
+    search->clocks += descriptor_cycle(search->access, address, true);
+  }
+  search->clocks += descriptor_cycle(search->access, address, false);
+  return search->update(search->inner, address, set_used, set_modified, locked);
+}
+
+/* The 68040's MMU, when the part has one, in front of the 68030's whole
+ * translation path. Returns false when this part has no 68040 MMU, which is
+ * every model but the DS5500 -- and that is what keeps the 68030's translation,
+ * and its state hash, untouched by this file's existence.
+ *
+ * `[040]` §3.1.3 is why it runs even with paged translation disabled: the
+ * transparent translation registers "operate independently of the E-bit in the
+ * TCR", so a 68040 always has something to ask. */
+/* No longer `const`, and that is the search running cycles: a cycle writes the
+ * bus this context owns. */
+static bool translate_040(ap_m68030_access_ctx_t *access,
+                          uint32_t logical, unsigned function_code, bool write,
+                          uint32_t *physical, bool *cache_inhibit,
+                          ap_m68040_cache_mode_t *cache_mode,
+                          unsigned *fetches, bool *fault,
+                          ap_m68030_mmu_fault_t *reason,
+                          uint32_t *search_clocks) {
+  if (access->mmu_040 == NULL) {
+    return false;
+  }
+  /* §4.3.3: where the part has a data cache, the search reads through it. */
+  const bool through_cache = access->table_cache_040 != NULL;
+  /* Every descriptor the search reads is a bus cycle now, so both callbacks
+   * are wrapped and the inner pair carried -- which of them applies depends on
+   * whether this part searches through its data cache (§4.3.3). */
+  table_search_040_t search = {
+      .access = access,
+      .fetch = through_cache ? ap_m68030_access_table_fetch_040
+                             : access->table_fetch_040,
+      .update = through_cache && access->table_update_040 != NULL
+                    ? ap_m68030_access_table_update_040
+                    : access->table_update_040,
+      .inner = through_cache ? (void *)(uintptr_t)access : access->context,
+      .clocks = 0u,
+  };
+  const ap_m68040_mmu_result_t r = ap_m68040_mmu_translate(
+      access->mmu_040, logical, function_code, write, search_fetch_040,
+      search.update != NULL ? search_update_040 : NULL, &search);
+  *fetches = r.fetches;
+  *search_clocks = search.clocks;
+  if (r.status == AP_M68040_MMU_FAULT) {
+    *fault = true;
+    /* The reason, mapped onto the report's existing vocabulary rather than
+     * reported as "cached" for everything -- which is what this did, and it
+     * made every 68040 fault read as an ATC entry that was already known bad
+     * even when the tables had just been walked. A diagnosis is only worth
+     * having if it can be wrong. */
+    switch (r.reason) {
+    case AP_M68040_MMU_FAULT_NOT_RESIDENT:
+      *reason = AP_M68030_MMU_FAULT_INVALID;
+      break;
+    case AP_M68040_MMU_FAULT_PROTECTION:
+      *reason = AP_M68030_MMU_FAULT_PROTECTION;
+      break;
+    case AP_M68040_MMU_FAULT_SEARCH_BUS:
+      *reason = AP_M68030_MMU_FAULT_SEARCH_BUS;
+      break;
+    case AP_M68040_MMU_FAULT_CACHED:
+    case AP_M68040_MMU_FAULT_NONE:
+      *reason = AP_M68030_MMU_FAULT_CACHED;
+      break;
+    }
+    return true;
+  }
+  *physical = r.physical;
+  /* §3.2.2.3's four modes. The 68030 path takes one bit, so the two
+   * noncachable ones inhibit and the two cachable ones do not; the 68040's own
+   * caches take the mode, because write-through and copyback write differently.
+   * *Until 2026-09-15 this read "Write-through against copyback is not
+   * distinguished because the 68040's caches are attached to no CPU".* */
+  *cache_mode = r.cache_mode;
+  *cache_inhibit = r.cache_mode == AP_M68040_CM_NONCACHABLE_SERIALIZED ||
+                   r.cache_mode == AP_M68040_CM_NONCACHABLE;
+  return true;
+}
+
 static bool search_update(void *context, uint32_t physical, bool set_used,
                           bool set_modified) {
   table_search_t *search = (table_search_t *)context;
@@ -537,9 +590,13 @@ static ap_m68030_access_result_t access_read_040(ap_m68030_access_ctx_t *access,
   ap_m68040_cache_mode_t mode = AP_M68040_CM_CACHABLE_WRITE_THROUGH;
   bool fault = false;
   unsigned fetches = 0u;
+  /* What the search's own cycles cost, which nothing charged until 2026-09-16.
+   * `[040]` Table 3-1 prices them; see `search_fetch_040`. */
+  uint32_t search_040_clocks = 0u;
   ap_m68030_mmu_fault_t reason = AP_M68030_MMU_FAULT_CACHED;
   if (translate_040(access, logical, function_code, false, &physical,
-                    &cache_inhibit, &mode, &fetches, &fault, &reason)) {
+                    &cache_inhibit, &mode, &fetches, &fault, &reason,
+                    &search_040_clocks)) {
     out.descriptor_fetches = fetches;
     if (fault) {
       report_mmu_fault(access, logical, function_code, false, reason);
@@ -566,6 +623,10 @@ static ap_m68030_access_result_t access_read_040(ap_m68030_access_ctx_t *access,
     out.value = narrow << shift;
     out.ok = true;
     out.clocks = AP_M68030_MIN_BUS_CLOCKS + waits_at_040(access, physical, true);
+  /* And the search that produced this translation, if one ran. `[040]`'s table
+   * searches were as free as the 68030's until 2026-09-16. */
+  out.clocks += search_040_clocks;
+
     return out;
   }
 
@@ -630,10 +691,18 @@ static ap_m68030_access_result_t access_write_040(ap_m68030_access_ctx_t *access
   ap_m68040_cache_mode_t mode = AP_M68040_CM_CACHABLE_WRITE_THROUGH;
   bool fault = false;
   unsigned fetches = 0u;
+  /* What the search's own cycles cost, which nothing charged until 2026-09-16.
+   * `[040]` Table 3-1 prices them; see `search_fetch_040`. */
+  uint32_t search_040_clocks = 0u;
   ap_m68030_mmu_fault_t reason = AP_M68030_MMU_FAULT_CACHED;
   if (translate_040(access, logical, function_code, true, &physical,
-                    &cache_inhibit, &mode, &fetches, &fault, &reason)) {
+                    &cache_inhibit, &mode, &fetches, &fault, &reason,
+                    &search_040_clocks)) {
     out.descriptor_fetches = fetches;
+    /* And the search that produced this translation, if one ran. `[040]`'s table
+     * searches were as free as the 68030's until 2026-09-16. */
+    out.clocks += search_040_clocks;
+
     if (fault) {
       report_mmu_fault(access, logical, function_code, true, reason);
       out.translation_fault = true;
@@ -786,11 +855,14 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
 
   bool fault_040 = false;
   unsigned fetches_040 = 0u;
+  /* What the search's own cycles cost, which nothing charged until 2026-09-16.
+   * `[040]` Table 3-1 prices them; see `search_fetch_040`. */
+  uint32_t search_040_clocks = 0u;
   ap_m68040_cache_mode_t mode_040 = AP_M68040_CM_CACHABLE_WRITE_THROUGH;
   ap_m68030_mmu_fault_t reason_040 = AP_M68030_MMU_FAULT_CACHED;
   if (translate_040(access, logical, function_code, false, &physical,
                     &cache_inhibit, &mode_040, &fetches_040, &fault_040,
-                    &reason_040)) {
+                    &reason_040, &search_040_clocks)) {
     out.descriptor_fetches = fetches_040;
     if (fault_040) {
       report_mmu_fault(access, logical, function_code, false, reason_040);
@@ -945,7 +1017,9 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
   out.value = fetched.value;
   /* §11.9's latency is the access's, so the search that made it possible is
    * part of what the access cost. */
-  out.clocks = fetched.clocks + search_clocks;
+  /* Either search, whichever part this is: a 68030 walks its own tree and a
+   * 68040 goes through `translate_040`, and only one of the two can have run. */
+  out.clocks = fetched.clocks + search_clocks + search_040_clocks;
   out.ok = !fetched.bus_error;
   out.fault = fetched.bus_error;
   return out;
@@ -986,11 +1060,14 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
 
   bool fault_040 = false;
   unsigned fetches_040 = 0u;
+  /* What the search's own cycles cost, which nothing charged until 2026-09-16.
+   * `[040]` Table 3-1 prices them; see `search_fetch_040`. */
+  uint32_t search_040_clocks = 0u;
   ap_m68040_cache_mode_t mode_040 = AP_M68040_CM_CACHABLE_WRITE_THROUGH;
   ap_m68030_mmu_fault_t reason_040 = AP_M68030_MMU_FAULT_CACHED;
   if (translate_040(access, logical, function_code, true, &physical,
                     &cache_inhibit, &mode_040, &fetches_040, &fault_040,
-                    &reason_040)) {
+                    &reason_040, &search_040_clocks)) {
     out.descriptor_fetches = fetches_040;
     if (fault_040) {
       report_mmu_fault(access, logical, function_code, true, reason_040);
@@ -1128,7 +1205,7 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
    * accumulates rather than assigns, so this can simply be added -- unlike the
    * read path, where the data cycle's assignment overwrites anything added
    * before it. */
-  out.clocks += search_clocks;
+  out.clocks += search_clocks + search_040_clocks;
   if (access->bus_acquire != NULL) {
     out.clocks += access->bus_acquire(access->context, write_phase);
   }

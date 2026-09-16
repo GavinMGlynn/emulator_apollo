@@ -373,6 +373,98 @@ static void test_a_table_search_costs_the_clocks_its_fetches_take(void) {
       "a translation table search must cost the bus time its fetches take");
 }
 
+/* ## The same question on the 68040, which translates through a different path
+ *
+ * `translate_040` is consulted before the 68030's tree — §3.1.3 makes the
+ * transparent registers answer independently of the E-bit — so a part with an
+ * `mmu_040` never reaches `ap_m68030_walk` at all. It had the same defect and
+ * for the same reason: `out.descriptor_fetches = fetches_040` and no clocks,
+ * so a DS5500's MMU misses were free.
+ *
+ * **A boot cannot check this and that is why the test exists.** The DS5500
+ * identity harness stops at the MD prompt with translation never enabled, so
+ * its report reads `0 descriptor fetch(es)` and both of its hashes are
+ * byte-identical whether the search is priced or not. An identity harness
+ * cannot catch a timing change on a path it never walks.
+ *
+ * The tree is `m68040_mmu_suite`'s, synthesised rather than laid in memory
+ * because this suite's memory model already answers descriptors that way: root
+ * at `0x1000` to `0x2000` to `0x3000` to a page frame at `0x50000`, and a
+ * logical address whose three index fields are all zero so each descriptor sits
+ * at its table's base. */
+#define TREE_ROOT 0x1000u
+#define TREE_ADDRESS 0x00000123u
+
+static unsigned tree_fetches_040;
+
+static bool tree_fetch_040(void *context, uint32_t address, uint32_t *value) {
+  (void)context;
+  tree_fetches_040++;
+  switch (address) {
+  case TREE_ROOT:
+    *value = 0x2000u | 0x2u; /* resident table descriptor */
+    return true;
+  case 0x2000u:
+    *value = 0x3000u | 0x2u;
+    return true;
+  case 0x3000u:
+    *value = 0x50000u | 0x1u; /* resident page descriptor */
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool tree_update_040(void *context, uint32_t address, bool set_used,
+                            bool set_modified, bool locked) {
+  (void)context;
+  (void)address;
+  (void)set_used;
+  (void)set_modified;
+  (void)locked;
+  return true;
+}
+
+static void test_a_68040_table_search_costs_the_clocks_its_fetches_take(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+
+  uint32_t tc = 0x8000u; /* translation enabled, 4-KB pages */
+  uint32_t ttr[2] = {0u, 0u};
+  uint32_t urp = TREE_ROOT;
+  uint32_t srp = TREE_ROOT;
+  ap_m68040_atc_t atc;
+  ap_m68040_atc_init(&atc);
+  const ap_m68040_mmu_t mmu_040 = {
+      .tc = &tc, .ttr = ttr, .urp = &urp, .srp = &srp, .atc = &atc};
+  ctx.mmu_040 = &mmu_040;
+  ctx.table_fetch_040 = tree_fetch_040;
+  ctx.table_update_040 = tree_update_040;
+  tree_fetches_040 = 0u;
+
+  const ap_m68030_access_result_t cold =
+      ap_m68030_access_read(&ctx, TREE_ADDRESS, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(cold.ok);
+  TEST_ASSERT_TRUE_MESSAGE(tree_fetches_040 > 0u,
+                           "this test needs an access that actually searches");
+  TEST_ASSERT_TRUE_MESSAGE(cold.descriptor_fetches > 0,
+                           "the 68040 path must report what it read");
+
+  /* The cache is cleared so the second read still runs its data cycle; the ATC
+   * is left alone, so it does not search. The difference is the search. */
+  ap_m68030_cache_clear(&m.cache);
+  const unsigned before = tree_fetches_040;
+  const ap_m68030_access_result_t warm =
+      ap_m68030_access_read(&ctx, TREE_ADDRESS, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(warm.ok);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(before, tree_fetches_040,
+                                 "the translation must be resident by now");
+
+  TEST_ASSERT_TRUE_MESSAGE(
+      cold.clocks > warm.clocks,
+      "a 68040 table search must cost the bus time its fetches take");
+}
+
 /* The first access misses everything: the MMU is consulted, a table search
  * runs, and the bus is used. */
 static void test_a_cold_access_consults_the_mmu_and_pays_for_it(void) {
@@ -860,6 +952,7 @@ int main(void) {
   RUN_TEST(test_the_opening_read_of_a_lock_is_first_read_and_the_rest_locked);
   RUN_TEST(test_a_table_search_locks_the_bus_for_its_whole_walk);
   RUN_TEST(test_a_table_search_costs_the_clocks_its_fetches_take);
+  RUN_TEST(test_a_68040_table_search_costs_the_clocks_its_fetches_take);
   RUN_TEST(test_a_search_inside_a_lock_restores_the_lock_it_interrupted);
   return UNITY_END();
 }

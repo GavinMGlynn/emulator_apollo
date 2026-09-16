@@ -4921,25 +4921,21 @@ Only after the reference core is proven, and only under an identity harness.
         cycle. *Verification: `access_suite` 22 -> 23, the new test failing first
         on an overwritten accumulator; `ctest` 153/153. Detail in
         `PROJECT_STATUS.md`.*
-  - [ ] **The 68040's table search is still free**, which is the same defect on
-        the other path: `translate_040` sets `out.descriptor_fetches` and
-        charges no clocks, so a DS5500's MMU misses cost nothing.
-        **Built 2026-09-16 and REVERTED unlanded, because no harness exercises
-        it.** The wrappers work — `translate_040` loses its `const`, both
-        callbacks are wrapped as the 68030's are, and `[040]` Table 3-1 prices
-        them: a plain read for a descriptor, a "Locked RMW Access" for a history
-        update, which the update callback already carries a `locked` flag for.
-        But **the DS5500 harness performs zero 68040 searches** — its report
-        reads `0 descriptor fetch(es)`, because it stops at the MD prompt with
-        translation never enabled — so both identities were byte-identical with
-        the change in and out, and nothing tested it.
-        **What it needs is a test, not a boot**, and that is the work: an access
-        context with `mmu_040` wired and a 68040 page table laid down in the
-        test's memory, then the same cold-against-warm comparison
-        `access_suite` uses for the 68030. `machine_suite` has DS5500 machines
-        with `mmu_040` attached to start from. Landing the pricing without it
-        would be shipping an unexercised timing change, which is the one thing
-        an identity harness cannot catch.
+  - [x] **The 68040's table search is priced too — 2026-09-16, and the test had
+        to come first.** Same defect on the other path: `translate_040` reported
+        `fetches` and charged no clocks, so a 68040's MMU misses were free. Built
+        once, **reverted unlanded**, rebuilt behind a test — because the DS5500
+        harness performs **zero** 68040 searches (`0 descriptor fetch(es)`, it
+        stops at MD with translation off), so both identities were byte-identical
+        with the change in and out and nothing tested it. `access_suite` now
+        builds the 68040 tree from `m68040_mmu_suite`'s and makes the same
+        cold-against-warm comparison; it failed on the unpriced code. `[040]`
+        Table 3-1 is the price — a plain read for a descriptor, a "Locked RMW
+        Access" for a history update, so an unlocked update is the write alone.
+        *Verification: `access_suite` 23 -> 24, test written first and failing;
+        `ctest` 153/153; both identities unchanged, which is predicted rather
+        than null. Detail in `PROJECT_STATUS.md`.*
+
   - [ ] **Delete `--legacy-instruction-bus`**, and with it `pending_cycles`,
         `defer_cycle_delivery` and the `clock_events` replay, once nothing needs
         the old schedule. Until then it is a second schedule in the tree and is
