@@ -4891,79 +4891,32 @@ Only after the reference core is proven, and only under an identity harness.
       *Verification: `board_suite` 100 -> 101; identity `6DF967A63D3D4DA9`
       unmoved. Detail in `PROJECT_STATUS.md`.*
 
-- [ ] **A resumable sequencer, which is the last of the per-cycle item.**
-      **AUTHORISED 2026-09-16** on completeness grounds, against the
-      close-as-approximation ending this item's own text recommended. **The
-      mechanism has landed and the premise below is superseded**: no rewrite was
-      needed. The instruction does not stop inside an access -- the rest of the
-      machine runs inside one, through two callbacks the machine implements
-      (`bus_acquire`, `bus_clock`), which is the fifth option the list below does
-      not have. `--cycle-bus` selects it; the default path reproduces
-      `263FFF9099871086` exactly and the new one gives `43EE6D5A22C006C0` for
-      1.3% more wall clock, with the console byte-identical and the posted-code
-      sequence unchanged. A clamp in the first version drifted the bus 940 ticks
-      ahead of the clock over 350 M instructions and is replaced by a running
-      total. *Verification: `machine_suite` 78 -> 79, differential across both
-      paths; `ctest` 153/153 on both presets. Detail in `PROJECT_STATUS.md`.*
-      **Awaiting:** `--cycle-bus` as the **only** path, with the goldens
-      re-blessed and the `MOVEM` partial store named as the reason. Both
-      sub-items below are done. Until that step the default schedule is
-      unchanged and every golden in this repository still means what it did,
-      which is why the parent is not ticked with its children.
-
-      *The original text follows, because it is the reasoning the item stood on
-      and the reason it sat unstarted for so long:*
-
-      `ap_m68030_step` sequences an instruction in ordinary nested C across a
-      6,966-line file, so it cannot stop inside an access; the alternatives are
-      an explicit state machine (the whole file), coroutines (not in C), a fiber
-      or thread per CPU (trades the determinism this project is built on), or
-      re-execution on resume (invalid -- instructions have side effects before
-      they commit).
-      **What it would change is on record rather than hypothetical**: a bus
-      master taking the bus between two of a `MOVEM`'s writes would leave some
-      registers stored and others not. This core stores all four, and
-      `machine_suite` asserts that in those terms, so the figure the rewrite
-      moves is written down before the rewrite starts.
-      **What would unblock it**: nothing external -- it is a decision to spend
-      the rewrite, and it should not be spent until something measured needs it.
-      The 350 M A/B says nothing on this machine can currently tell the
-      difference, and `RMC` closes the read-modify-write case by the hardware's
-      own rule.
-      *Verification: a master taking the bus mid-`MOVEM` leaves a partial store,
-      and the identity harness's goldens are re-blessed with that named as the
-      reason.*
-
-      **The two things waiting on this, moved here 2026-09-09 from the
-      processor-manual walk item.** They were listed under that walk because it
-      found them, which kept a *reading* item open on work that is this one's —
-      and the walk's reading is finished. Both are conservative today and
-      neither is exhibited by the identity boot; verbatim, with their own
-      reasoning:
-  - [x] **`AP_M68030_RMC_FIRST_READ` placed, 2026-09-16** -- modelled since the
-        arbiter was written and driven by nothing, because the board could only
-        be told "this instruction held the bus". The hooks now carry
-        `ap_m68030_rmc_t`, the access context remembers whether the opening read
-        has run, and `ap_arbiter_set_processor_rmc_state` drives all three
-        states, so §7.7.4's distinction is expressed: the read that opens an
-        operation is the first read cycle, everything after it is locked. Both
-        identity hashes are unchanged, which is expected -- the boot lands no
-        bus request in that window, so the run is off the change's path.
-        *Verification: `access_suite` 19 -> 20, made to fail first by collapsing
-        the phase to what the bool expressed; `ctest` 153/153. Detail in
-        `PROJECT_STATUS.md`.*
-  - [x] **A translation table search locks the bus, 2026-09-16** -- §11.9 calls
-        it "an extended read-modify-write operation" and §12.1.2 gives the pins,
-        and `ap_m68030_walk.h` had cited the rule since it was written with
-        nothing asserting it: the walk had no bus object to assert on. It has
-        one now. The search opens in §7.7.4's first-read phase, locks for the
-        whole walk, and restores the *enclosing* operation's phase, so a `TAS`
-        that searches mid-operation does not come out unlocked. **The descriptor
-        fetches still run no bus cycles**, so nothing arbitrates between them --
-        routing them through the bus is a separate change and is named here
-        rather than assumed. Both identity hashes unchanged: the lock is a
-        refusal and this boot never asks. *Verification: `access_suite` 20 -> 22;
-        `ctest` 153/153. Detail in `PROJECT_STATUS.md`.*
+- [x] **A resumable sequencer — CLOSED 2026-09-16, and it took no sequencer.**
+      Authorised on completeness grounds against the close-as-approximation
+      ending this item's own text recommended. Its premise was avoidable: the
+      four options it listed are all rewrites of the 8,377-line step, and there
+      is a fifth. **The instruction does not stop inside an access; the rest of
+      the machine runs inside one** — two callbacks the machine implements, so
+      the scheduler is called from the CPU rather than the CPU yielding to it.
+      The C stack is untouched and determinism is unaffected, because the calls
+      happen where the program puts them. Both sub-items fell out of it:
+      `AP_M68030_RMC_FIRST_READ` is placed, and a table search locks the bus as
+      §11.9's extended read-modify-write. The cycle schedule is now the only
+      one; `--legacy-instruction-bus` reproduces the old numbers exactly, on two
+      machines, which is what makes the re-blessing evidence rather than hope.
+      References: DN3500 **`43EE6D5A22C006C0`**, DS5500 **`08591C51E9D4372F`**.
+      *Verification: `ctest` 153/153 on both presets; four identity runs.
+      Detail in `PROJECT_STATUS.md`.*
+  - [ ] **The table search's descriptor fetches still run no bus cycles**, so
+        nothing arbitrates between them and the lock above is all that is
+        modelled. Routing them through the bus is a change with its own timing
+        consequences — every search would cost real cycles — and is named here
+        rather than folded into the item it was found in.
+  - [ ] **Delete `--legacy-instruction-bus`**, and with it `pending_cycles`,
+        `defer_cycle_delivery` and the `clock_events` replay, once nothing needs
+        the old schedule. Until then it is a second schedule in the tree and is
+        **not hashed**; if it outlives the transition it must be, on the
+        reasoning that put `devices_advance_mid_access` in the digest.
 
 - [x] **Where the time goes, measured** — and the first thing the measurement
       found was that the profile was measuring the instrument. A stepped boot

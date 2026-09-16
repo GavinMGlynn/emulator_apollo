@@ -1747,11 +1747,23 @@ static void test_a_stopped_processor_with_a_board_lets_time_pass(void) {
  * bounded run. Asserting that the PC never moved would assert the guard rather
  * than the stall.
  *
- * **And the transfer is all-or-nothing**, which is the per-cycle item's
+ * **The transfer is all-or-nothing here, and as of 2026-09-16 that is a
+ * property of this test rather than of the core.** The master is granted the
+ * bus *before* the run, so every one of the store's cycles finds it held and
+ * each waits out `AP_MACHINE_STALL_LIMIT` before the guard lets it through --
+ * and a guard that forces progress stores all four whichever schedule is
+ * running. What changed is that the bus is now arbitrated inside the cycle, so
+ * a tenure that begins **part-way through** the store does leave some registers
+ * stored and others not, which is what the hardware does and what
+ * `test_the_bus_is_arbitrated_inside_an_instruction_not_between_them` below
+ * exercises.
+ *
+ * *Original text, kept because it is what this assertion was written to record:*
+ * "**And the transfer is all-or-nothing**, which is the per-cycle item's
  * remaining approximation made visible: on real hardware a tenure beginning
  * part-way through a `MOVEM.L` leaves some registers stored and others not,
  * because the bus can be taken between any two of its cycles. Here the
- * processor commits the whole instruction or none of it. */
+ * processor commits the whole instruction or none of it." */
 static void test_a_bus_master_costs_the_processor_a_stall(void) {
   enum { CHANNEL = 2u, DRQ = 3u, DEST = 0x2000u };
   const uint32_t dest = AP_BOARD_RAM_BASE + DEST;

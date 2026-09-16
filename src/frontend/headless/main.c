@@ -400,8 +400,9 @@ static void print_usage(const char *program_name) {
   fprintf(stdout,
           "  --screenshot FILE     scan the fitted screen out to a PNG\n"
           "  --disk FILE           fit a Winchester (.awd) to the boot\n"
-          "  --cycle-bus          arbitrate the bus inside each processor\n"
-          "                       cycle, not between instructions\n"
+          "  --legacy-instruction-bus\n"
+          "                       arbitrate the bus between instructions, as\n"
+          "                       this core did before 2026-09-16\n"
           "  --disk-writeback FILE write the machine's disk out when the run\n"
           "                        ends, so what the guest *wrote* can be read.\n"
           "                        A separate path, never --disk's own: the\n"
@@ -2822,7 +2823,7 @@ static bool g_devices_mid_access = false;
  * not the resumable sequencer the plan proposed. A switch while the two paths
  * are compared against one state hash; it goes when the goldens are re-blessed
  * and the A/B is on the record. */
-static bool g_cycle_bus = false;
+static bool g_legacy_instruction_bus = false;
 
 /* Drive the boot one *machine cycle* at a time through `ap_machine_tick`
  * instead of one instruction at a time. The two must produce the same state:
@@ -4790,7 +4791,7 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
   ap_machine_init_model(&machine, ram, ram_bytes, model);
   ap_machine_set_board(&machine, board);
   machine.devices_advance_mid_access = g_devices_mid_access;
-  machine.cycle_bus = g_cycle_bus;
+  machine.cycle_bus = !g_legacy_instruction_bus;
   machine.watch_write_address = watch_write;
   machine.mmu_fault_stop_address = stop_mmu_fault_at;
   machine.exception_stop_vector = stop_vector;
@@ -7223,7 +7224,7 @@ static int boot_from_tape(const char *path, uint64_t limit) {
   ap_machine_init(&machine, ram, ram_bytes);
   ap_machine_set_board(&machine, board);
   machine.devices_advance_mid_access = g_devices_mid_access;
-  machine.cycle_bus = g_cycle_bus;
+  machine.cycle_bus = !g_legacy_instruction_bus;
   for (uint32_t i = 0; i < image.length; i++) {
     if (!ap_machine_write(&machine, image.load_address + i, 1u,
                           image.data[i])) {
@@ -7561,8 +7562,8 @@ int main(int argc, char **argv) {
       i++;
       continue;
     }
-    if (strcmp(argv[i], "--cycle-bus") == 0) {
-      g_cycle_bus = true;
+    if (strcmp(argv[i], "--legacy-instruction-bus") == 0) {
+      g_legacy_instruction_bus = true;
       i += 1;
       continue;
     }

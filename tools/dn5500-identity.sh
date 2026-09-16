@@ -25,6 +25,20 @@
 #
 # ## The reference
 #
+#     executed     4462047 instruction(s)
+#     state hash   08591C51E9D4372F
+#     final PC     00002926 (boot PROM)
+#     clocks       27925468
+#
+# As of 2026-09-16, when the bus became arbitrated inside each processor cycle.
+# The instruction count moved and the clock count barely did, which is what this
+# harness's self-deriving bound means: it stops on the console script's last
+# step, so a machine whose timing shifts reaches the same prompt after a
+# different amount of work rather than at a fixed count.
+#
+# `--legacy-instruction-bus` reproduces the previous reference exactly, which is
+# the control that makes the new one a re-blessing:
+#
 #     executed     4456406 instruction(s)
 #     state hash   675A3BBF26127F42
 #     final PC     00002926 (boot PROM)

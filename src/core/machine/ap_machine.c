@@ -712,6 +712,15 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
    * valid bits rather than data, by design, so without this the leftovers would
    * be whatever the caller happened to have. */
   *machine = (ap_machine_t){0};
+  /* **The bus is arbitrated inside the cycle, and that is now the only
+   * schedule this core has.** `cpu/m68030/ap_m68030_bus.h` carries the design.
+   * Set here rather than left to the zeroing above because it is a claim about
+   * how this machine runs, and a claim that happens to be enumerator zero is
+   * still a claim -- the same reason `at_bus_series` is assigned explicitly.
+   *
+   * `--legacy-instruction-bus` still selects the old schedule so the A/B that
+   * blessed the goldens can be reproduced. It goes when nothing needs it. */
+  machine->cycle_bus = true;
 
   /* **After** the blanking above, not before. Setting it first and then
    * zeroing the struct left `model` null while everything downstream read it,

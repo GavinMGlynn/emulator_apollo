@@ -6173,6 +6173,21 @@ self-test is byte-identical on both revisions. **The DS5500 reference moves with
 it**, to `675A3BBF26127F42` at the same 4,456,406 instructions and 27,925,641
 clocks. `FINDINGS.md` C296.
 
+**Both references move again on 2026-09-16, and this time for a behaviour change
+rather than for coverage**: the bus is arbitrated inside each processor cycle,
+which is the resumable-sequencer item. The DN3500 is **`43EE6D5A22C006C0`** at
+**1,833,620,993 clocks**, and the DS5500 **`08591C51E9D4372F`** at 4,462,047
+instructions and 27,925,468 clocks -- a different instruction count because that
+harness's bound is the console script's last step and not a number, so a machine
+whose timing shifts reaches the same prompt after a different amount of work.
+
+*The old numbers are still reachable and were checked, which is what makes this a
+re-blessing rather than a hope*: `--legacy-instruction-bus` reproduces
+`263FFF9099871086` at 1,834,623,621 clocks and `675A3BBF26127F42` at 4,456,406
+instructions and 27,925,641 clocks, both exactly. So the escape hatch is
+faithful and the schedule is demonstrably the cause, on two machines with
+different processors.
+
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it
 should not touch a DN3500. Checking that by reasoning is not the standard here,
@@ -21328,6 +21343,60 @@ the hardware.
 | Approximation | What it does instead | Why | Cost to close |
 | --- | --- | --- | --- |
 | 68030 `RTE` from a bus fault frame | **Re-executes** the faulted instruction from the start rather than resuming mid-instruction | The real part resumes from the internal registers it saved, and this model has none to save | Needs the long frame's internal registers, which need a microsequencer model. Exact meanwhile when the faulted access precedes any side effect — every case the boot PROM reaches — and wrong for an instruction that had already committed one |
+
+## The cycle schedule is the only schedule, and item 5 is closed (2026-09-16)
+
+`--cycle-bus` is gone; the bus is arbitrated inside each processor cycle on
+every machine this core builds, and `--legacy-instruction-bus` selects the old
+schedule so the A/B that blessed the goldens can be reproduced. It goes when
+nothing needs it.
+
+**What the rewrite would have bought, and what this bought instead.** The item
+asked for a resumable sequencer so that a bus master could take the bus between
+two cycles of one instruction -- the `MOVEM.L` whose four stores the plan named.
+That now happens, and it took no sequencer: the machine runs *inside* the
+access rather than the instruction stopping inside it. The four options the item
+listed were all rewrites and three were bad; the fifth was an inversion.
+
+**The references, re-blessed with the A/B that justifies them.**
+
+| machine | schedule | state hash | instructions | clocks |
+| --- | --- | --- | --- | --- |
+| DN3500 | cycle (default) | **`43EE6D5A22C006C0`** | 350,000,000 | 1,833,620,993 |
+| DN3500 | `--legacy-instruction-bus` | `263FFF9099871086` | 350,000,000 | 1,834,623,621 |
+| DS5500 | cycle (default) | **`08591C51E9D4372F`** | 4,462,047 | 27,925,468 |
+| DS5500 | `--legacy-instruction-bus` | `675A3BBF26127F42` | 4,456,406 | 27,925,641 |
+
+Both legacy runs reproduce their recorded references **exactly**, on two
+machines with different processors. That is what makes this a re-blessing rather
+than a hope: the escape hatch is faithful, so the schedule is demonstrably the
+cause of the new numbers and nothing else drifted alongside it.
+
+**The DS5500's instruction count moved and its clock count barely did**, which
+looks wrong and is not. That harness's bound is `--boot-stop-on-script-end` --
+the console script's last step, deliberately "the machine's own answer" rather
+than a number -- so a machine whose timing shifts reaches the same prompt after a
+different amount of work. 5,641 more instructions in 173 fewer clocks is a
+machine spending less of its time stalled, which is exactly what moving the
+arbitration point does.
+
+**What is not closed, and is now visible rather than hidden.** The translation
+table search locks the bus but its descriptor fetches still run no bus cycles,
+so nothing arbitrates *between* them; routing them through the bus is a separate
+change with its own timing consequences. And `--legacy-instruction-bus` is a
+second schedule in the tree until it is deleted -- it is **not** hashed, on the
+grounds that it is transitional and that the two schedules already produce
+different hashes through their behaviour. *If it outlives the transition it must
+be hashed*, on the same reasoning that put `devices_advance_mid_access` in the
+digest: two machines differing only in a configuration field must not hash the
+same.
+
+*Verification: `ctest` 153/153 on `linux-debug` and `linux-release` with the new
+default, goldens included. Four identity runs, release build, figures above. The
+`MOVEM` all-or-nothing comment in `machine_suite` is corrected -- that store is
+still all-or-nothing in **that test**, because the master holds the bus before
+the run and the stall guard forces every write through, which is a property of
+the test's setup and no longer of the core.*
 
 ## A table search locks the bus, which §11.9 has said all along (2026-09-16)
 
