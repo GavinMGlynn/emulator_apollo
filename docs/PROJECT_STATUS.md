@@ -20500,7 +20500,7 @@ failure that cost a bit position in the 68020's module entry word.
 | 68030 operand access (read/write through an effective address) | working; a sub-long-word operand is selected from the long word by position, and one straddling two long words is split into a bus cycle per long word in address order | `operand_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` |
 | 68030 instruction step (fetch → decode → execute → advance) | **complete**: the `RESET` instruction costs its **518 clocks** as of 2026-09-07 -- `[030]` §11.6.17's `518(0/0/0)` and `[PRM]`'s "Asserts the RSTO signal for 512 ... clock periods", two independent documents for a figure the arm was charging zero for. The boot PROM does not execute one in the identity window, which the byte-identical clock total proves rather than assumes: **a bit field accesses only the bytes it spans as of 2026-09-06** -- `[PRM]`'s note on every bit field page gives the shapes (byte, word, 3-byte, long word, and long word with byte for a five-byte span) and `[030]` §11.6.14 prices them at one operand read under five bytes and two at five. This core read **one byte per bit** -- thirty-two accesses for a 32-bit field, and a read-modify-write per bit on the write path, so a field written across a device register read and rewrote it eight times a byte. The values were always right, which is why every existing test passed. Measured at 2 and 3 bus reads after, against 33 and 33 before: every one of the 65,536 opcode words executes, and **no word in the space reports `UNIMPLEMENTED`** — a swept property, not a list. The sweep extends through the coprocessor extension space and the MMU extension word, where *which instruction a word is* lives in the extension rather than the opcode; both found real gaps (664 coprocessor forms, 94,316 MMU forms) that an opcode-only sweep could not see. This row used to enumerate the dozen families that worked and end "everything else reports unimplemented, including divide-by-zero", which was stale by the whole instruction set | `step_suite`, 328 tests -- the newest being the **MC68040's** `PFLUSH`, which now flushes the ATCs it has been counting |
 | 68030 instruction prefetch (pipe driven from memory) | working | `fetch_suite`, 5 tests, `MC68030 User's Manual 3ed` §11.2.2 and §6.1 |
-| 68030 logical memory access path (cache → MMU → bus) | working, reads and writes. **The read half of a read-modify-write is forced to miss the data cache** — `[030]` §6.1.2.2, "always forced to miss", and §11.4's note says it again from the timing end. This core passed a literal `false` for the RMC flag into the cache, so a `TAS` or `CAS` whose operand was already cached answered from the line: no external cycle, and a semaphore read that could not see another master's write. The same constant also hid the RMC from `CBREQ` suppression and *cleared* `bus->rmc` on the read cycle of the indivisible pair. Corrected 2026-09-06 | `access_suite`, 19 tests, `MC68030 User's Manual 3ed` §6.1 -- the newest telling a translation's refusal apart from the bus's, which is the 68040 frame's `ATC` bit |
+| 68030 logical memory access path (cache → MMU → bus) | working, reads and writes. **The read half of a read-modify-write is forced to miss the data cache** — `[030]` §6.1.2.2, "always forced to miss", and §11.4's note says it again from the timing end. This core passed a literal `false` for the RMC flag into the cache, so a `TAS` or `CAS` whose operand was already cached answered from the line: no external cycle, and a semaphore read that could not see another master's write. The same constant also hid the RMC from `CBREQ` suppression and *cleared* `bus->rmc` on the read cycle of the indivisible pair. Corrected 2026-09-06 | `access_suite`, 20 tests, `MC68030 User's Manual 3ed` §6.1 -- the newest telling a translation's refusal apart from the bus's, which is the 68040 frame's `ATC` bit |
 | 68030 effective address calculation (with register side effects) | working; memory-indirect modes report the pending indirection | `addr_suite`, 13 tests, `M68000 Family Programmer's Reference Manual 1992` §2.2 |
 | 68030 instruction decode dispatcher (+ MOVEQ, total length) | working — 89.9% of the 16-bit space classified, and every claimed instruction sized | `decode_suite`, 17 tests including two full 65536-word sweeps |
 | 68030 family 1111 (coprocessor interface, MMU instruction dispatch) | decode working — the opcode map is now complete | `coproc_suite`, 6 tests, `M68000 Family Programmer's Reference Manual 1992` §8.2 and `MC68030 User's Manual 3ed` §9.7.6 |
@@ -21328,6 +21328,60 @@ the hardware.
 | Approximation | What it does instead | Why | Cost to close |
 | --- | --- | --- | --- |
 | 68030 `RTE` from a bus fault frame | **Re-executes** the faulted instruction from the start rather than resuming mid-instruction | The real part resumes from the internal registers it saved, and this model has none to save | Needs the long frame's internal registers, which need a microsequencer model. Exact meanwhile when the faulted access precedes any side effect — every case the boot PROM reaches — and wrong for an instruction that had already committed one |
+
+## `AP_M68030_RMC_FIRST_READ` is placed, after being modelled and driven by
+## nothing (2026-09-16)
+
+The first of the two sub-items the sequencer blocked. `[030]` §7.7.1: an
+indivisible sequence "causes the bus arbitration state machine to ignore bus
+requests (assertions of BR) that occur **after the first read cycle**". So a
+lock has two halves that behave differently -- a request during the opening read
+still walks the arbiter to its grant states and takes the bus the moment `RMC`
+negates; one after it is not acted on at all -- and `ap_m68030_arb.h` has
+modelled all three states since the day it was written.
+
+**Two of the three were ever driven.** `ap_arbiter_set_processor_rmc` took a
+`bool` because the board could only be told "this instruction held the bus": the
+whole sequence ran inside one `ap_m68030_step` and the clocks were delivered
+afterwards. The lock was therefore exactly one instruction wide, which is
+conservative -- it refuses a grant the hardware would allow rather than allowing
+one it forbids -- and was a named plan item rather than an approximation nobody
+had noticed. *This is the same class as the defect that found the arbiter's RMC
+disconnected in the first place: a state machine that is correct and wired to
+nothing.*
+
+With the bus arbitrated inside the cycle the phase is known at each cycle. The
+hooks now carry `ap_m68030_rmc_t` rather than a bool, `ap_m68030_access_ctx_t`
+remembers whether the opening read has run, and
+`ap_arbiter_set_processor_rmc_state` drives all three states. The rule is the
+flowchart's: §7.3.5 asserts `RMC`, reads, then writes, so **the opening read is
+the first read cycle and every cycle after it is locked** -- including the
+second read of a `CAS2`, and including every write, since no write can be the
+opening cycle.
+
+**The flag is cleared by the access layer, not by the step.** `rmc_read_seen` is
+assigned from `access->rmc` on every read, so it is false whenever no operation
+is running and the three sites in `ap_m68030_step.c` that assert `rmc` -- `TAS`,
+`CAS`, `CAS2` -- need no change and cannot forget to reset it. A flag that must
+be cleared by whoever sets another flag is a flag that eventually is not.
+
+**Both identity hashes are unchanged by this, and that is the expected result
+rather than a disappointment.** `263FFF9099871086` on the default path, which is
+untouched, and `43EE6D5A22C006C0` on `--cycle-bus`, which is the same number the
+previous commit produced. Narrowing the lock is observable only when a bus
+request arrives *during* the opening read cycle of a semaphore operation, and
+this boot does not produce one: 34 tenures over 1.8 billion clocks, none of them
+landing in that window. So the run is off the change's path
+(`an-invariant-run-means-the-change-is-off-the-path`), the unit test is the
+evidence, and the boot's invariance is a second check that nothing else moved.
+
+*Verification: `access_suite` 19 -> 20. The test asserts the whole sequence a
+`TAS` produces -- ordinary, first read, locked write, locked second read,
+ordinary again, then a fresh operation opening with its own first read -- and it
+was **made to fail before it was kept**: collapsing the phase to
+`NONE`/`LOCKED`, which is what the bool did, gives "Expected 1 Was 2: the read
+that opens a lock is the first read cycle". `ctest` 153/153. Identity re-run on
+both paths, release build.*
 
 ## The bus is arbitrated inside the cycle, and it took no rewrite (2026-09-16)
 

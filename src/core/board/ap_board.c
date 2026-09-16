@@ -723,6 +723,10 @@ void ap_board_set_processor_rmc(ap_board_t *board, bool locked) {
   ap_arbiter_set_processor_rmc(&board->arbiter, locked);
 }
 
+void ap_board_set_processor_rmc_state(ap_board_t *board, ap_m68030_rmc_t rmc) {
+  ap_arbiter_set_processor_rmc_state(&board->arbiter, rmc);
+}
+
 void ap_board_reset_devices(ap_board_t *board) {
   if (board == NULL) {
     return;

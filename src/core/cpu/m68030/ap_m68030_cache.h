@@ -420,6 +420,9 @@ typedef struct {
    * test, and the state this core had before the two existed. */
   ap_m68030_bus_acquire_fn bus_acquire;
   ap_m68030_bus_clock_fn bus_clock;
+  /* Which half of an indivisible operation this cycle is, §7.7.4's
+   * distinction. `AP_M68030_RMC_NONE` for an ordinary cycle. */
+  ap_m68030_rmc_t rmc_phase;
   void *context;
 } ap_m68030_cache_request_t;
 

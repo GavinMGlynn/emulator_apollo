@@ -95,14 +95,39 @@ void ap_arbiter_tick(ap_arbiter_t *arbiter);
  * §12.1.2 from the pin's.
  *
  * `ap_m68030_arb_set_rmc` takes three states because §7.7.4 distinguishes the
- * first read cycle from the rest. This takes a bool and asserts the *locked*
- * one, because the machine cannot see inside a step: the whole sequence happens
- * within one `ap_m68030_step` and the clocks are delivered afterwards, so what
- * the board learns is "this instruction held the bus", not which cycle of it is
- * running. The narrower `AP_M68030_RMC_FIRST_READ` needs the per-cycle
- * processor and is named in `COMPLETION_PLAN.md` rather than approximated
- * here. */
+ * first read cycle from the rest. **This one takes a bool and asserts the
+ * *locked* state**, which is the conservative half: it refuses a grant the
+ * hardware would allow rather than allowing one it forbids.
+ *
+ * **CORRECTED 2026-09-16 -- the narrower state is no longer blocked.** With the
+ * bus arbitrated inside the cycle (`cpu/m68030/ap_m68030_bus.h`) the phase is
+ * known at each cycle, and `ap_arbiter_set_processor_rmc_state` below drives
+ * all three. This function is kept for callers that genuinely have only the
+ * instruction-wide fact -- `ap_machine_run`'s old delivery path is one -- and
+ * goes with that path.
+ *
+ * *Original text, kept because it is why the bool exists at all:* "This takes a
+ * bool and asserts the *locked* one, because the machine cannot see inside a
+ * step: the whole sequence happens within one `ap_m68030_step` and the clocks
+ * are delivered afterwards, so what the board learns is 'this instruction held
+ * the bus', not which cycle of it is running. The narrower
+ * `AP_M68030_RMC_FIRST_READ` needs the per-cycle processor and is named in
+ * `COMPLETION_PLAN.md` rather than approximated here." */
 void ap_arbiter_set_processor_rmc(ap_arbiter_t *arbiter, bool locked);
+
+/* The same pin, driven with §7.7.4's **three** states rather than two.
+ *
+ * The bool above exists because the machine could not see inside a step: the
+ * whole sequence happened within one `ap_m68030_step` and the clocks were
+ * delivered afterwards, so what the board learned was "this instruction held
+ * the bus". With the bus arbitrated inside the cycle
+ * (`cpu/m68030/ap_m68030_bus.h`) the phase is known at each cycle, and the
+ * difference is real: a request arriving during the first read cycle still
+ * walks the arbiter to its grant states, where one arriving after it is
+ * ignored. `AP_M68030_RMC_FIRST_READ` was modelled from the day the arbiter was
+ * written and driven by nothing until 2026-09-16. */
+void ap_arbiter_set_processor_rmc_state(ap_arbiter_t *arbiter,
+                                        ap_m68030_rmc_t rmc);
 
 /* Who holds the bus: `AP_ARBITER_PROCESSOR`, or a DRQ index. */
 [[nodiscard]] int ap_arbiter_master(const ap_arbiter_t *arbiter);

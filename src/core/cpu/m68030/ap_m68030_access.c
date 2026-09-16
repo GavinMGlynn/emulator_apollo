@@ -776,8 +776,19 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
        * inside itself, exactly as the write cycle below does. */
       .bus_acquire = access->bus_acquire,
       .bus_clock = access->bus_clock,
+      /* **§7.7.4's distinction, and this is the cycle it turns on.** A read
+       * cycle inside an indivisible operation is the *first* one exactly once;
+       * every cycle after it is locked. The flag is cleared below whenever the
+       * operation is not running, so it cannot leak into the next one. */
+      .rmc_phase = !access->rmc ? AP_M68030_RMC_NONE
+                                : (access->rmc_read_seen
+                                       ? AP_M68030_RMC_LOCKED
+                                       : AP_M68030_RMC_FIRST_READ),
       .context = access->context,
   };
+  /* Cleared when no operation is running, set once the opening read has been
+   * issued. Both here, so the three assert sites in the step need no change. */
+  access->rmc_read_seen = access->rmc;
   const ap_m68030_cache_access_t fetched =
       ap_m68030_cache_read(access->cache, &access->bus, &request);
 
@@ -944,8 +955,13 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
   /* The bus is acquired before the write cycle for the same reason the read
    * path acquires it: this is the point a master can be holding it, and the
    * two writes of a `MOVEM` are exactly the gap the plan named. */
+  /* A write is never the first cycle of a read-modify-write -- §7.3.5's
+   * flowchart asserts RMC, reads, then writes -- so a write inside one is
+   * always past the point where requests stop being acted on. */
+  const ap_m68030_rmc_t write_phase =
+      write_bus->rmc ? AP_M68030_RMC_LOCKED : AP_M68030_RMC_NONE;
   if (access->bus_acquire != NULL) {
-    out.clocks += access->bus_acquire(access->context, write_bus->rmc);
+    out.clocks += access->bus_acquire(access->context, write_phase);
   }
   while (ap_m68030_bus_active(write_bus)) {
     ap_m68030_bus_terminate(write_bus,
@@ -955,7 +971,7 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
     (void)ap_m68030_bus_tick(write_bus);
     out.clocks++;
     if (access->bus_clock != NULL) {
-      access->bus_clock(access->context, write_bus->rmc);
+      access->bus_clock(access->context, write_phase);
     }
     if (out.clocks > 64u) {
       break; /* as the read path does: a device that never answers is a bug */

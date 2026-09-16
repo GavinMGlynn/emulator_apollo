@@ -200,8 +200,16 @@ typedef struct {
    * later, and the two totals meet. */
   uint64_t cycle_clocks_accounted;
   /* What the hooks last drove onto the board's `RMC` pin, so the state is
-   * restored rather than left asserted when a cycle that asserted it ends. */
-  bool cycle_rmc_asserted;
+   * restored rather than left asserted when a cycle that asserted it ends --
+   * and so the arbiter sees one edge per change rather than one per clock.
+   *
+   * Three-valued, because `[030]` §7.7.4 is: a request arriving during the
+   * **first read cycle** of an indivisible operation still walks the arbiter
+   * to its grant states, and one arriving after it is ignored entirely. The
+   * arbiter has modelled `AP_M68030_RMC_FIRST_READ` since it was written and
+   * nothing drove it until the bus was arbitrated inside the cycle, because the
+   * board could only be told "this instruction held the bus". */
+  ap_m68030_rmc_t cycle_rmc_asserted;
   /* **And whether the instruction whose cycles are being handed out held the
    * bus for an indivisible read-modify-write.**
    *

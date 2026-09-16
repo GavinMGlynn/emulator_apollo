@@ -60,6 +60,10 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+/* For `ap_m68030_rmc_t`, which the hooks below carry. No cycle: `ap_m68030_arb.h`
+ * includes only `<stdbool.h>` and `<stdint.h>`. */
+#include "cpu/m68030/ap_m68030_arb.h"
+
 /* Bus cycle states, `[030]` 7.3.1. Each is one-half clock. S_IDLE is not a
  * documented state: it is the machine between cycles. */
 typedef enum {
@@ -251,7 +255,8 @@ bool ap_m68030_bus_tick(ap_m68030_bus_t *bus);
  * answer: the processor usually owns an idle bus. A non-zero answer is
  * contention, and it is *measured* rather than charged -- the clocks are the
  * ones a master actually spent holding the bus. */
-typedef unsigned (*ap_m68030_bus_acquire_fn)(void *context, bool rmc);
+typedef unsigned (*ap_m68030_bus_acquire_fn)(void *context,
+                                             ap_m68030_rmc_t rmc);
 
 /* One clock of a processor bus cycle has elapsed.
  *
@@ -266,7 +271,11 @@ typedef unsigned (*ap_m68030_bus_acquire_fn)(void *context, bool rmc);
  * clocks were delivered afterwards -- makes the lock exactly one instruction
  * wide, where §7.7.1 has the arbiter "ignore bus requests ... that occur after
  * the first read cycle" and allow one *during* it. Passing the signal here is
- * what lets `AP_M68030_RMC_FIRST_READ` finally be placed. */
-typedef void (*ap_m68030_bus_clock_fn)(void *context, bool rmc);
+ * what lets `AP_M68030_RMC_FIRST_READ` finally be placed -- and it is placed.
+ * The phase is `AP_M68030_RMC_FIRST_READ` on the read cycle that opens an
+ * indivisible operation and `AP_M68030_RMC_LOCKED` on every cycle after it,
+ * which is exactly the distinction §7.7.4 draws and the one a bool could not
+ * carry. */
+typedef void (*ap_m68030_bus_clock_fn)(void *context, ap_m68030_rmc_t rmc);
 
 #endif /* APOLLO_CPU_M68030_AP_M68030_BUS_H */

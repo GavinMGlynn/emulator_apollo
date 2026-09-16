@@ -50,6 +50,11 @@ void ap_arbiter_set_processor_rmc(ap_arbiter_t *arbiter, bool locked) {
                         locked ? AP_M68030_RMC_LOCKED : AP_M68030_RMC_NONE);
 }
 
+void ap_arbiter_set_processor_rmc_state(ap_arbiter_t *arbiter,
+                                        ap_m68030_rmc_t rmc) {
+  ap_m68030_arb_set_rmc(&arbiter->cpu, rmc);
+}
+
 void ap_arbiter_tick(ap_arbiter_t *arbiter) {
   /* Step 1 of §7.7's sequence: "An external device asserts the bus request
    * signal." Wire-ORed, as §7.7.1 has it -- "This can be a wire-ORed signal ...

@@ -4937,20 +4937,18 @@ Only after the reference core is proven, and only under an identity harness.
       and the walk's reading is finished. Both are conservative today and
       neither is exhibited by the identity boot; verbatim, with their own
       reasoning:
-  - [ ] **`AP_M68030_RMC_FIRST_READ` is modelled and never placed.** The
-        arbiter has three RMC states because `[030]` §7.7.4 distinguishes
-        the first read cycle --- a bus request arriving during it still
-        walks the machine to its grant states, one arriving after is
-        ignored --- and the machine can only assert `AP_M68030_RMC_LOCKED`,
-        because the whole sequence happens inside one `ap_m68030_step` and
-        the clocks are delivered afterwards. So the lock is one instruction
-        wide where the hardware's is narrower.
-        **What would unblock it**: Phase 8's **resumable sequencer**. The
-        per-cycle processor item closed 2026-09-08 and does not unblock this
-        one: it makes a bus cycle addressable from *outside* the step, and the
-        first read cycle of an RMC is inside it. Until then the wider lock is the conservative direction ---
-        it refuses a grant the hardware would allow, rather than allowing
-        one it forbids.
+  - [x] **`AP_M68030_RMC_FIRST_READ` placed, 2026-09-16** -- modelled since the
+        arbiter was written and driven by nothing, because the board could only
+        be told "this instruction held the bus". The hooks now carry
+        `ap_m68030_rmc_t`, the access context remembers whether the opening read
+        has run, and `ap_arbiter_set_processor_rmc_state` drives all three
+        states, so §7.7.4's distinction is expressed: the read that opens an
+        operation is the first read cycle, everything after it is locked. Both
+        identity hashes are unchanged, which is expected -- the boot lands no
+        bus request in that window, so the run is off the change's path.
+        *Verification: `access_suite` 19 -> 20, made to fail first by collapsing
+        the phase to what the bool expressed; `ctest` 153/153. Detail in
+        `PROJECT_STATUS.md`.*
   - [ ] **A translation table search is an extended read-modify-write and
         this core does not lock the bus for one.** `[030]` §11.9: "Since the
         address translation search is an extended read-modify-write

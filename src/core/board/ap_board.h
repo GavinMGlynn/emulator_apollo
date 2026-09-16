@@ -1402,6 +1402,11 @@ void ap_board_bus_ticks(ap_board_t *board, uint64_t n);
  * `ap_arbiter_set_processor_rmc` for the citations. */
 void ap_board_set_processor_rmc(ap_board_t *board, bool locked);
 
+/* The same, with §7.7.4's three states -- see
+ * `ap_arbiter_set_processor_rmc_state`. Used by the machine when the bus is
+ * arbitrated inside the cycle, where the phase is known. */
+void ap_board_set_processor_rmc_state(ap_board_t *board, ap_m68030_rmc_t rmc);
+
 /* Whether the processor may run a cycle this clock. False while a controller
  * holds the bus, which is the whole of how contention reaches the CPU. */
 [[nodiscard]] bool ap_board_processor_may_run(const ap_board_t *board);

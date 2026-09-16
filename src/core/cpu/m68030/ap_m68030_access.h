@@ -241,6 +241,19 @@ typedef struct {
    * with nothing else on its bus. */
   ap_m68030_bus_acquire_fn bus_acquire;
   ap_m68030_bus_clock_fn bus_clock;
+  /* Whether the read cycle that opens the current indivisible operation has
+   * already run.
+   *
+   * `[030]` §7.7.4 makes the two halves of a locked sequence behave
+   * differently: a bus request arriving during the **first read cycle** still
+   * walks the arbiter to its grant states, and one arriving after it is not
+   * acted on at all. So the phase cannot be derived from `rmc` alone.
+   *
+   * Kept here and cleared whenever `rmc` is false, so the three sites in
+   * `ap_m68030_step.c` that assert `rmc` -- `TAS`, `CAS`, `CAS2` -- need no
+   * change and cannot forget to reset it. A flag that must be cleared by
+   * whoever sets another flag is a flag that eventually is not. */
+  bool rmc_read_seen;
 
   /* How long the addressed device takes to answer, in **wait states** — whole
    * clocks inserted before the cycle may advance.

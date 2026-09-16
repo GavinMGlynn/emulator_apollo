@@ -385,9 +385,9 @@ static bool machine_read_sized(void *context, uint32_t address,
  * "ignore bus requests ... that occur after the first read cycle" -- so
  * re-asserting an already-asserted signal every clock would be a stream of
  * events where the hardware has one. */
-static void machine_drive_rmc(ap_machine_t *machine, bool rmc) {
+static void machine_drive_rmc(ap_machine_t *machine, ap_m68030_rmc_t rmc) {
   if (rmc != machine->cycle_rmc_asserted) {
-    ap_board_set_processor_rmc(machine->board, rmc);
+    ap_board_set_processor_rmc_state(machine->board, rmc);
     machine->cycle_rmc_asserted = rmc;
   }
 }
@@ -421,7 +421,7 @@ static void machine_cycle_catch_up(ap_machine_t *machine) {
   machine->cycle_clocks_accounted = machine->cpu.clocks;
 }
 
-static unsigned machine_bus_acquire(void *context, bool rmc) {
+static unsigned machine_bus_acquire(void *context, ap_m68030_rmc_t rmc) {
   ap_machine_t *machine = (ap_machine_t *)context;
   if (machine->board == NULL || !machine->cycle_bus) {
     return 0u;
@@ -443,7 +443,7 @@ static unsigned machine_bus_acquire(void *context, bool rmc) {
   return stalled;
 }
 
-static void machine_bus_clock(void *context, bool rmc) {
+static void machine_bus_clock(void *context, ap_m68030_rmc_t rmc) {
   ap_machine_t *machine = (ap_machine_t *)context;
   if (machine->board == NULL || !machine->cycle_bus) {
     return;
@@ -1354,7 +1354,7 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
         /* §7.3.5 ends a read-modify-write by negating `RMC` after the write,
          * and the operation never outlives its instruction. Released here so a
          * lock cannot survive into the next one. */
-        machine_drive_rmc(machine, false);
+        machine_drive_rmc(machine, AP_M68030_RMC_NONE);
       } else if (machine->cpu.clock_events_dropped == 0u) {
         for (unsigned e = 0; e < machine->cpu.clock_event_count; e++) {
           ap_board_bus_ticks(machine->board, machine->cpu.clock_events[e]);

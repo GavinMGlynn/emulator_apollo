@@ -153,6 +153,91 @@ static ap_m68030_access_ctx_t context_of(machine_t *m) {
   };
 }
 
+/* ## §7.7.4's two halves of an indivisible operation, and which cycle is which
+ *
+ * `[030]` §7.7.1: the sequence "causes the bus arbitration state machine to
+ * ignore bus requests (assertions of BR) that occur **after the first read
+ * cycle** of the read-modify-write sequence". So a lock has two halves that
+ * behave differently -- a request during the opening read still walks the
+ * arbiter to its grant states, one after it is not acted on at all -- and
+ * `ap_m68030_arb.h` has modelled all three states since it was written.
+ *
+ * **Only two of them were ever driven.** `ap_arbiter_set_processor_rmc` took a
+ * `bool`, because the whole sequence ran inside one `ap_m68030_step` and the
+ * clocks were delivered afterwards: the board could be told "this instruction
+ * held the bus" and not which cycle was running. So the lock was one
+ * instruction wide where the hardware's is narrower, which is conservative --
+ * it refuses a grant the hardware would allow -- and was a named plan item.
+ *
+ * With the bus arbitrated inside the cycle the phase is known at each cycle,
+ * and this is the test that it is the *right* phase. It asserts the sequence a
+ * `TAS` produces: an ordinary access outside any operation, then the opening
+ * read, then the write, then an ordinary access again. */
+static ap_m68030_rmc_t seen_phase[8];
+static unsigned seen_count;
+
+static unsigned record_phase(void *context, ap_m68030_rmc_t rmc) {
+  (void)context;
+  if (seen_count < 8u) {
+    seen_phase[seen_count] = rmc;
+  }
+  seen_count++;
+  return 0u;
+}
+
+static void test_the_opening_read_of_a_lock_is_first_read_and_the_rest_locked(
+    void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+  ctx.bus_acquire = record_phase;
+  seen_count = 0;
+
+  /* Outside any operation. A cold read misses the cache, so a cycle runs and
+   * the hook is reached -- a hit would run none, which is why each step below
+   * uses an address the one before it did not touch. */
+  (void)ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(1u, seen_count,
+                                 "a cold read must run one bus cycle");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(AP_M68030_RMC_NONE, seen_phase[0],
+                                 "an ordinary access is not part of a lock");
+
+  /* `TAS` asserts RMC, reads, then writes -- §7.3.5's flowchart. The read is
+   * the one the arbiter still listens through. */
+  ctx.rmc = true;
+  (void)ap_m68030_access_read(&ctx, ADDRESS + 0x40u, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_EQUAL_UINT(2u, seen_count);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      AP_M68030_RMC_FIRST_READ, seen_phase[1],
+      "the read that opens a lock is the first read cycle");
+
+  /* And the write is past it. A write always is: the flowchart reads before it
+   * writes, so no write can be the opening cycle. */
+  (void)ap_m68030_access_write(&ctx, ADDRESS + 0x40u, FC_SUPERVISOR_DATA, 0x55u,
+                               1u);
+  TEST_ASSERT_EQUAL_UINT(3u, seen_count);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(AP_M68030_RMC_LOCKED, seen_phase[2],
+                                 "a write inside a lock is past the first read");
+
+  /* A second read inside the same operation -- which `CAS2` performs -- is also
+   * past the opening cycle, so it must not report itself as the first. */
+  (void)ap_m68030_access_read(&ctx, ADDRESS + 0x80u, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_EQUAL_UINT(4u, seen_count);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      AP_M68030_RMC_LOCKED, seen_phase[3],
+      "only the opening read of an operation is the first read");
+
+  /* And the state does not leak into the next operation: with RMC negated the
+   * next access is ordinary, and the one after that opens a fresh lock. */
+  ctx.rmc = false;
+  (void)ap_m68030_access_read(&ctx, ADDRESS + 0xC0u, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_EQUAL_UINT(AP_M68030_RMC_NONE, seen_phase[4]);
+  ctx.rmc = true;
+  (void)ap_m68030_access_read(&ctx, ADDRESS + 0x100u, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      AP_M68030_RMC_FIRST_READ, seen_phase[5],
+      "a later operation opens with its own first read cycle");
+}
+
 /* The first access misses everything: the MMU is consulted, a table search
  * runs, and the bus is used. */
 static void test_a_cold_access_consults_the_mmu_and_pays_for_it(void) {
@@ -637,5 +722,6 @@ int main(void) {
   RUN_TEST(test_every_write_reaches_memory);
   RUN_TEST(test_a_narrow_device_read_is_addressed_after_translation);
   RUN_TEST(test_a_narrow_read_positions_its_byte_by_the_bus_address);
+  RUN_TEST(test_the_opening_read_of_a_lock_is_first_read_and_the_rest_locked);
   return UNITY_END();
 }
