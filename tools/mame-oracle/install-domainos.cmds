@@ -79,7 +79,7 @@ yes
 ct
 !expect key when ready:
 !wait 6
-!swap ctape /home/gavin/Development/emulators/apollo/media/domainos/019594-001.CRTG_STD_SFW_1.ct
+!swap ctape media/domainos/019594-001.CRTG_STD_SFW_1.ct
 !cr
 !expect done reading all release notes
 !cr
@@ -87,13 +87,13 @@ ct
 11
 yes
 !wait 6
-!swap ctape /home/gavin/Development/emulators/apollo/media/domainos/019594-002.CRTG_STD_SFW_2.ct
+!swap ctape media/domainos/019594-002.CRTG_STD_SFW_2.ct
 !cr
 !wait 6
-!swap ctape /home/gavin/Development/emulators/apollo/media/domainos/019594-003.CRTG_STD_SFW_3.ct
+!swap ctape media/domainos/019594-003.CRTG_STD_SFW_3.ct
 !cr
 !wait 6
-!swap ctape /home/gavin/Development/emulators/apollo/media/domainos/019594-004.CRTG_STD_SFW_4.ct
+!swap ctape media/domainos/019594-004.CRTG_STD_SFW_4.ct
 !cr
 !cr
 select

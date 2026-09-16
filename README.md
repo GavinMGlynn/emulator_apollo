@@ -7,10 +7,17 @@ Ring**, so that several emulated nodes can talk to each other over an emulated
 
 [![CI](https://github.com/GavinMGlynn/emulator_apollo/actions/workflows/ci.yml/badge.svg)](https://github.com/GavinMGlynn/emulator_apollo/actions/workflows/ci.yml)
 
-> **Status: early.** The build system, model table and time base exist and are
-> tested. No machine boots yet. The table below is the honest account, and
-> `docs/PROJECT_STATUS.md` is the single source of truth for it. Nothing here
-> claims accuracy it has not earned.
+> **Status: 1.0.0.** Domain/OS SR10.2, SR10.3 and SR10.4 boot to a login prompt
+> on the 68030 and the 68040; two emulated nodes exchange frames over the token
+> ring and see each other's files; SCSI, cartridge tape and floppy round-trip
+> real media. `docs/PROJECT_STATUS.md` is the single source of truth and records
+> the verification behind every claim here.
+>
+> **It is not 100% of the hardware, and says where it is not.** Six of the twelve
+> models have no runnable oracle and are verified against documents and firmware
+> alone; 33 figures and 29 readings are `PROVISIONAL`, each with its reason and
+> what would close it, in the register at the end of `PROJECT_STATUS.md`. Nothing
+> here claims accuracy it has not earned.
 
 ## Why the token ring is the interesting part
 
@@ -66,10 +73,16 @@ every model expressed as a row in one table rather than scattered conditionals.
 | DN2500 | 68030 @ 20 MHz | on-chip | mono 1024×800 | paper only |
 | DN3000 | 68020 @ 12 MHz | external 68851 | mono 1024×800 | MAME |
 | **DN3500** | 68030 @ 25 MHz | on-chip | mono 1024×800 | MAME (reference superset) |
+| DN3550 | 68030 @ 25 MHz | on-chip | mono 1280×1024 | paper only |
+| DN4000 | 68020 @ 25 MHz | external 68851 | colour 1280×1024 | paper only |
 | DN4500 | 68030 @ 33 MHz | on-chip | mono 1280×1024 | paper only |
 | DN5500 | 68040 @ 25 MHz | on-chip 68040 | mono 1024×800 | MAME |
 | DSP3000 / DSP3500 / DSP5500 | as the DN sibling | as the DN sibling | headless | MAME |
-| DSP4500 | as DN4500 | on-chip | headless | paper only |
+| DSP3550 / DSP4500 | as the DN sibling | on-chip | headless | paper only |
+
+Twelve models, all from one table in `src/core/model/`. **Six have a runnable
+oracle and six do not** — the paper-only rows are checked against manuals and
+their own firmware, which is a weaker claim and is made as one.
 
 The DSP servers are the same boards without display or keyboard, which makes
 them the cheap node type to run many of on an emulated ring.
@@ -126,8 +139,9 @@ risk rather than merely an untested one, so `cmake/Platform.cmake` fails the
 configure outright.
 
 ```sh
-git clone --recursive https://github.com/GavinMGlynn/emulator_apollo.git
+git clone https://github.com/GavinMGlynn/emulator_apollo.git
 cd emulator_apollo
+git submodule update --init --depth 1 ext/unity   # the only one the build needs
 cmake --preset linux-debug
 cmake --build --preset linux-debug
 ctest --preset linux-debug
@@ -135,22 +149,35 @@ ctest --preset linux-debug
 ```
 
 Substitute `macos-*` or `windows-*` for the platform presets; every configure
-preset has a matching build and test preset. Only `ext/unity` is needed to build
-and test; `ext/mame` is the oracle and is not required.
-
-```sh
-git submodule update --init --depth 1 ext/unity   # enough for build + tests
-```
+preset has a matching build and test preset. **Do not clone `--recursive`**
+unless you want the oracle: `ext/mame` is a very large checkout and nothing in
+the build needs it. [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) says what each
+submodule is for.
 
 Timing and performance are measured on release builds only; the CI and debug
 builds are `-O0`.
 
-## ROMs and media
+## What a clone does not bring with it
 
-Apollo boot and ring firmware and Domain/OS media are **not** distributed here
-and are gitignored. Put your own dumps in `roms/firmware/` and `media/`.
-Firmware images are on bitsavers under `bits/Apollo/firmware/`, and Domain/OS
-SR10.3/SR10.4 install tapes under `bits/Apollo/`.
+**[`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) is the complete manifest** —
+every piece of software, firmware, media and documentation needed, what each is
+for, and where to get it.
+
+The short version: a clone plus `ext/unity` builds and passes all 153 tests with
+**no firmware at all**. To boot a machine you supply your own dumps, because
+Apollo firmware and Domain/OS media are not ours to redistribute and are
+gitignored:
+
+- `roms/firmware/` — boot and option ROMs. `3500_BOOT_12191_7.bin` is the one
+  every reference figure here was measured with. Bitsavers, `bits/Apollo/firmware/`.
+- `media/` — Domain/OS install tapes and disk images. SR10.2, SR10.3 and SR10.4
+  are the set that exists.
+- `docs/references/` — ~130 vendor manuals the source cites by page. The
+  `*_WALK.md` records of what each one yielded **are** committed, so the findings
+  are readable without the manuals.
+
+`REQUIREMENTS.md` lists every ROM with its size and SHA-256 prefix, so you can
+tell a good dump from a bad one.
 
 ## Licence
 
@@ -161,7 +188,9 @@ this core.
 
 ## Documents
 
-- [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) — what works, with its verification
-- [`docs/COMPLETION_PLAN.md`](docs/COMPLETION_PLAN.md) — phased road to done
-- [`docs/references/RING.md`](docs/references/RING.md) — Apollo Token Ring findings
-- [`CLAUDE.md`](CLAUDE.md) — working conventions
+- [`docs/REQUIREMENTS.md`](docs/REQUIREMENTS.md) — **everything needed to build and run**, with sources
+- [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md) — what works, with its verification, and the `PROVISIONAL` register
+- [`docs/COMPLETION_PLAN.md`](docs/COMPLETION_PLAN.md) — the route taken, item by item
+- [`docs/references/RING.md`](docs/references/RING.md) — Apollo Token Ring findings, each cited
+- [`tools/mame-oracle/FINDINGS.md`](tools/mame-oracle/FINDINGS.md) — every divergence against the oracle and how it was settled
+- [`CLAUDE.md`](CLAUDE.md) — the working conventions the project is built under

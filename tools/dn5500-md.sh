@@ -37,7 +37,7 @@ fi
 # not-an-input` records.
 cartridge=${APOLLO_CARTRIDGE:-}
 if [ -z "$cartridge" ]; then
-  cartridge=${APOLLO_SCRATCH:-/home/gavin/apollo-scratch}/dn5500-boot-cartridge.ct
+  cartridge=${APOLLO_SCRATCH:-$HOME/apollo-scratch}/dn5500-boot-cartridge.ct
   cp "$root/media/domainos/019593-001.CRTG_STD_SFW_BOOT_1-REV.A.ct" "$cartridge"
 fi
 

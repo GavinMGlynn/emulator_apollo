@@ -2641,7 +2641,7 @@ DS5500 volume at all until this morning** — the label reader was pinned to a
 DN3500's block layout. The fix that made the mount history readable is what made
 this diagnosable.
 
-*Reproduce*: `APOLLO_DISK=/home/gavin/apollo-scratch/sau/restored.awd
+*Reproduce*: `APOLLO_DISK=$APOLLO_SCRATCH/sau/restored.awd
 tools/dn5500-boot.sh --clock 2002-11-28T12:30:00 --boot-limit 1500000000`. The
 harness's default clock is deliberately left alone; see its header.
 
@@ -2695,7 +2695,7 @@ That is the same calendar question the DN3500 answered long ago — the RTC has 
 agree with the volume's own mount history before Domain/OS will go on. It is the
 next step and it is operational.
 
-*Reproduce*: `APOLLO_DISK=/home/gavin/apollo-scratch/sau/restored.awd
+*Reproduce*: `APOLLO_DISK=$APOLLO_SCRATCH/sau/restored.awd
 tools/dn5500-boot.sh`, which now carries `--configure`. 892,741,067
 instructions to the calendar message.
 
@@ -3063,7 +3063,7 @@ So the level-7 is expected behaviour and is eliminated. What remains unexplained
 is the `CPU (interrupts) Test #0` failure itself, and the place to look is inside
 the loaded diagnostic at `01002000`-`01003A14`, not in the PROM.
 
-*Reproduce*: `APOLLO_DISK=/home/gavin/apollo-scratch/sau/restored.awd
+*Reproduce*: `APOLLO_DISK=$APOLLO_SCRATCH/sau/restored.awd
 tools/dn5500-boot.sh`. The volume is the artefact of the restore run recorded in
 *The SR10.4 restore completes* below; the boot takes about two minutes to the
 failure and then spins on `Do you wish to continue (y,n)?`, because the harness

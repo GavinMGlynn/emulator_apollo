@@ -48,7 +48,14 @@
 -- `screencap.lua` resets the machine and the reset re-runs this script with
 -- fresh locals, so the watch's own guard lives in `_G` or it registers twice.
 
-local HERE = "/home/gavin/Development/emulators/apollo/tools/mame-oracle/"
+-- Where this script lives, so `screencap.lua` beside it can be found from any
+-- working directory. MAME runs an autoboot script with no `arg` table and no
+-- `...`, so the path cannot be derived from the interpreter -- it comes from
+-- the environment, defaulting to the layout of a checkout run from its root.
+local HERE = os.getenv("APOLLO_ORACLE_DIR") or "tools/mame-oracle/"
+if HERE:sub(-1) ~= "/" then
+	HERE = HERE .. "/"
+end
 dofile(HERE .. "screencap.lua")
 
 local G = _G
