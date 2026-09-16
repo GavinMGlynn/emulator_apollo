@@ -1910,6 +1910,70 @@ static void test_the_bus_is_arbitrated_inside_an_instruction_not_between_them(vo
       "a master winning mid-instruction must stall the instruction it is in");
 }
 
+/* ## Every device that keeps a cursor is advanced to the machine's instant
+ *
+ * **Six parts date their deadlines from a stored `now`** that only an advance
+ * refreshes -- `ap_omti`, `ap_kbd`, `ap_graphics`, `ap_sc499`, `ap_scsi` and
+ * `ap_wd7000`, the last two having arrived with the SCSI subsystem after the
+ * plan item that names the hazard was written, which is why that item said four.
+ * `omti->completion_at = omti->now + duration` is the shape: a schedule that
+ * stopped advancing a device every instruction would leave its cursor behind
+ * and complete its next command **early**, which a bisect once localised
+ * between 100 M and 200 M instructions.
+ *
+ * It is not a live defect on any schedule this core has run, and since the bus
+ * became arbitrated inside the cycle it is less of one still -- `ap_board_advance`
+ * runs every processor clock, so a cursor is at most one clock old. But that is
+ * a property of the *schedule*, held by nothing, and the plan's fix for it is a
+ * 120-site change that alters no behaviour today.
+ *
+ * **So the property is asserted instead.** This is the cheap half of that item:
+ * it cannot make a stale cursor impossible, but it makes one loud, and it is
+ * the exact failure the hazard describes. Checked after *every* instruction
+ * rather than at the end, because a schedule that skipped one advance and
+ * caught up on the next would pass an end-state check and is precisely what
+ * this is for.
+ *
+ * The count is pinned separately by `check_cursor_census` in
+ * `tools/check_docs.py`, so a seventh part cannot be added without the register
+ * moving -- which is how the sixth got in unnoticed. */
+static void test_every_device_cursor_tracks_the_machine_instant(void) {
+  /* Something that touches devices and takes time: the serial, timer and
+   * translation-map writes this suite already uses for that. */
+  /* MOVE.B #$11,($00010401).L -- serial 1, channel A
+   * MOVE.B #$22,($00010801).L -- the interval timer's control register
+   * MOVE.B #$33,($00017000).L -- the address translation map
+   * then spin, so the run keeps taking time after the writes. */
+  static const uint16_t program[] = {
+      0x13FCu, 0x0011u, 0x0001u, 0x0401u, 0x13FCu, 0x0022u, 0x0001u, 0x0801u,
+      0x13FCu, 0x0033u, 0x0001u, 0x7000u, 0x4E71u, 0x60FCu,
+  };
+  static ap_machine_t machine;
+  static ap_board_t board;
+  build_board_machine(&machine, &board, ram, program,
+                      sizeof program / sizeof program[0]);
+  /* Fitted, so the two cursors the SCSI subsystem brought are covered too --
+   * they are the ones the hazard's own count missed. */
+  ap_board_attach_scsi(&board);
+
+  for (unsigned i = 0; i < 24u; i++) {
+    (void)ap_machine_run(&machine, 1u);
+    const ap_time_t now = machine.now;
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(now, board.disk.controller.now,
+                                     "the disk controller's cursor is stale");
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(now, board.keyboard.now,
+                                     "the keyboard's cursor is stale");
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(now, board.graphics.now,
+                                     "the graphics cursor is stale");
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(now, board.tape.controller.now,
+                                     "the tape controller's cursor is stale");
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(now, board.scsi.now,
+                                     "the SCSI adapter's cursor is stale");
+    TEST_ASSERT_EQUAL_UINT64_MESSAGE(now, board.scsi_bus.now,
+                                     "the SCSI bus's cursor is stale");
+  }
+}
+
 /* MOVE.B #$11,($00010401).L -- serial 1, channel A
  * MOVE.B #$22,($00010801).L -- the interval timer's control register
  * MOVE.B #$33,($00017000).L -- the address translation map
@@ -3579,6 +3643,7 @@ int main(void) {
   RUN_TEST(test_the_state_report_carries_the_clock_and_the_pc);
   RUN_TEST(test_a_bus_master_costs_the_processor_a_stall);
   RUN_TEST(test_the_bus_is_arbitrated_inside_an_instruction_not_between_them);
+  RUN_TEST(test_every_device_cursor_tracks_the_machine_instant);
   RUN_TEST(test_a_machine_derives_its_cpu_features_from_its_model);
   RUN_TEST(test_a_cpu_space_read_reaches_the_coprocessor);
   RUN_TEST(test_the_same_address_as_data_is_not_the_coprocessor);

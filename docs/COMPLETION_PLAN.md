@@ -5040,6 +5040,15 @@ Only after the reference core is proven, and only under an identity harness.
         across `device/` and `board/` and fails when it disagrees with the
         figure `PROJECT_STATUS.md` states. *Verification: proved to fail by
         adding a cursor; `ctest` 153/153.*
+  - [x] **And the cadence is asserted, 2026-09-16.** `machine_suite` runs a
+        device workload with the SCSI card fitted and requires all six cursors
+        to equal `machine.now` **after every instruction** -- after every one
+        rather than at the end, because a schedule that skipped an advance and
+        caught up on the next would pass an end-state check. The cheap half of
+        the parent, and deliberately not a substitute: it cannot make a stale
+        cursor impossible, it makes one loud. *Verification: `machine_suite`
+        79 -> 80, proved to fail by removing `ap_graphics_advance` from
+        `ap_board_advance`; `ctest` 153/153.*
 
 ## Phase 9 — Content testing
 
