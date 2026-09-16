@@ -1621,6 +1621,31 @@ ap_time_t ap_machine_now(const ap_machine_t *machine) { return machine->now; }
 
 ap_machine_run_t ap_machine_tick(ap_machine_t *machine) {
   ap_machine_run_t out = {.status = AP_M68030_STEP_EXECUTED};
+  /* ## The cycle-bus schedule has already done this, and doing it again is a
+   * ## double delivery
+   *
+   * This path exists to spread an instruction's clocks over the bus one at a
+   * time, because the run loop used to hand them over in a batch at the end. It
+   * is an *approximation of* the cycle schedule, reconstructed after the fact
+   * from `clock_events`.
+   *
+   * With the bus arbitrated inside the cycle there is nothing to reconstruct:
+   * `machine_bus_clock` ticked the board's bus at each clock as the processor
+   * spent it, and `machine_cycle_catch_up` delivered the rest before this
+   * returns. Handing out `pending_cycles` on top of that delivers every clock
+   * **twice** -- which is what `test_the_tick_loop_matches_the_run_loop_on_a_
+   * real_board` caught the moment the schedule was made the default, and which
+   * no identity boot could have seen because the boot does not use this entry
+   * point.
+   *
+   * So on that schedule the two loops are not merely equal, they are the same
+   * code, and the tick is one instruction. The caller loses the ability to
+   * interpose *between* an instruction's cycles from outside -- but the cycles
+   * now happen at their true moments rather than being replayed afterwards,
+   * which is the thing the interposing was approximating. */
+  if (machine->cycle_bus) {
+    return ap_machine_run(machine, 1u);
+  }
   if (machine->pending_cycles == 0u) {
     /* Run the instruction but keep its clocks: they are handed out below, one
      * per tick, so the bus sees them spread across the cycles the processor

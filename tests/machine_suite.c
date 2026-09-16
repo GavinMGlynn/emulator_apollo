@@ -3066,26 +3066,42 @@ static void test_the_tick_loop_matches_the_run_loop_on_a_real_board(void) {
   static ap_machine_t ticked;
   const uint64_t instructions = 100u;
 
-  build_board_machine(&stepped, &first_board, ram, program, COUNT);
-  const ap_machine_run_t run = ap_machine_run(&stepped, instructions);
-  TEST_ASSERT_EQUAL_UINT64(instructions, run.executed);
+  /* **Both schedules, because they reach agreement by different routes.**
+   * On the instruction-boundary schedule the tick loop reconstructs the
+   * instruction's clocks from `clock_events` and hands them out one at a time,
+   * and agreeing with the run loop is a real property that took two defects to
+   * establish. On the cycle-bus schedule there is nothing to reconstruct -- the
+   * hooks delivered each clock as the processor spent it -- so `ap_machine_tick`
+   * *is* `ap_machine_run`, and the assertion is that nothing was delivered
+   * twice on the way. Running only the first would have missed the double
+   * delivery the second had; running only the second proves nothing about the
+   * first. */
+  for (unsigned cycle_bus = 0; cycle_bus < 2u; cycle_bus++) {
+    build_board_machine(&stepped, &first_board, ram, program, COUNT);
+    stepped.cycle_bus = (cycle_bus != 0u);
+    const ap_machine_run_t run = ap_machine_run(&stepped, instructions);
+    TEST_ASSERT_EQUAL_UINT64(instructions, run.executed);
 
-  build_board_machine(&ticked, &second_board, ram, program, COUNT);
-  uint64_t executed = 0u;
-  unsigned guard = 0u;
-  while (executed < instructions && guard++ < 1000000u) {
-    executed += ap_machine_tick(&ticked).executed;
-  }
-  TEST_ASSERT_EQUAL_UINT64(instructions, executed);
-  while (ticked.pending_cycles > 0u && guard++ < 1000000u) {
-    (void)ap_machine_tick(&ticked);
-  }
+    build_board_machine(&ticked, &second_board, ram, program, COUNT);
+    ticked.cycle_bus = (cycle_bus != 0u);
+    uint64_t executed = 0u;
+    unsigned guard = 0u;
+    while (executed < instructions && guard++ < 1000000u) {
+      executed += ap_machine_tick(&ticked).executed;
+    }
+    TEST_ASSERT_EQUAL_UINT64(instructions, executed);
+    while (ticked.pending_cycles > 0u && guard++ < 1000000u) {
+      (void)ap_machine_tick(&ticked);
+    }
 
-  TEST_ASSERT_EQUAL_HEX32(stepped.cpu.regs.pc, ticked.cpu.regs.pc);
-  TEST_ASSERT_EQUAL_UINT64(stepped.cpu.clocks, ticked.cpu.clocks);
-  /* The board's own state too -- the divergence was an arbitration stall, which
-   * shows in the clocks and in the arbiter and nowhere in the registers. */
-  TEST_ASSERT_EQUAL_UINT64(ap_machine_hash(&stepped), ap_machine_hash(&ticked));
+    TEST_ASSERT_EQUAL_HEX32(stepped.cpu.regs.pc, ticked.cpu.regs.pc);
+    TEST_ASSERT_EQUAL_UINT64(stepped.cpu.clocks, ticked.cpu.clocks);
+    /* The board's own state too -- the divergence was an arbitration stall,
+     * which shows in the clocks and in the arbiter and nowhere in the
+     * registers. */
+    TEST_ASSERT_EQUAL_UINT64(ap_machine_hash(&stepped),
+                             ap_machine_hash(&ticked));
+  }
 }
 
 static void test_a_boardless_machine_advances_nothing(void) {

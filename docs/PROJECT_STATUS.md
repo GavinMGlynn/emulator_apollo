@@ -21507,11 +21507,38 @@ the instruction it is in on one path and cannot be seen at all on the other, so
 it cannot pass vacuously. `ctest` 153/153 on `linux-debug` and `linux-release`.
 Identity harness re-run on both paths, release build, figures above.*
 
-**What is left of the item**: `AP_M68030_RMC_FIRST_READ` placed at the first read
-cycle, the translation table search locked as an extended read-modify-write, and
-then `--cycle-bus` becoming the only path with the goldens re-blessed. Until that
-last step the default is unchanged and every golden in this repository still
-means what it did.
+### The tick loop delivered every clock twice on the new schedule
+
+Found by making `cycle_bus` the default as a trial and running `ctest`, which is
+the cheapest experiment available and was worth running before the commit that
+does it for real. `test_the_tick_loop_matches_the_run_loop_on_a_real_board`
+failed at once.
+
+`ap_machine_tick` exists to spread an instruction's clocks over the bus one at a
+time, reconstructing them afterwards from `clock_events` because the run loop
+used to hand them over in a batch. It is an *approximation of* the cycle
+schedule. On the cycle schedule there is nothing to reconstruct -- the hooks
+ticked the board's bus at each clock as the processor spent it -- so handing out
+`pending_cycles` on top delivered every clock a second time.
+
+**No identity boot could have caught this**, because no boot uses that entry
+point: `--cycle-stepped` is the only caller and the harness does not pass it. A
+differential test between two loops did, which is the argument for keeping one.
+The tick is now one instruction on that schedule, the two loops being the same
+code rather than two schedules that agree, and the equivalence test runs **both**
+schedules -- the first because reconstruction agreeing with the run loop is a
+real property that took two defects to establish, the second because it is the
+one that was wrong.
+
+*Verification: `machine_suite` 79, the test extended to both schedules and made
+to fail first by removing the fix. The change is one hunk inside
+`ap_machine_tick`, which the identity harness does not call, so both hashes are
+unchanged by construction rather than by measurement.*
+
+**What is left of the item**: `--cycle-bus` becoming the only path with the
+goldens re-blessed. Both sub-items are done -- `AP_M68030_RMC_FIRST_READ` is
+placed and the table search is locked. Until that last step the default is
+unchanged and every golden in this repository still means what it did.
 
 ## PROVISIONAL figures
 
