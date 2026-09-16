@@ -4905,8 +4905,11 @@ Only after the reference core is proven, and only under an identity harness.
       ahead of the clock over 350 M instructions and is replaced by a running
       total. *Verification: `machine_suite` 78 -> 79, differential across both
       paths; `ctest` 153/153 on both presets. Detail in `PROJECT_STATUS.md`.*
-      **Still owed before this ticks**: the two sub-items below, then
-      `--cycle-bus` as the only path with the goldens re-blessed.
+      **Awaiting:** `--cycle-bus` as the **only** path, with the goldens
+      re-blessed and the `MOVEM` partial store named as the reason. Both
+      sub-items below are done. Until that step the default schedule is
+      unchanged and every golden in this repository still means what it did,
+      which is why the parent is not ticked with its children.
 
       *The original text follows, because it is the reasoning the item stood on
       and the reason it sat unstarted for so long:*
@@ -4949,22 +4952,18 @@ Only after the reference core is proven, and only under an identity harness.
         *Verification: `access_suite` 19 -> 20, made to fail first by collapsing
         the phase to what the bool expressed; `ctest` 153/153. Detail in
         `PROJECT_STATUS.md`.*
-  - [ ] **A translation table search is an extended read-modify-write and
-        this core does not lock the bus for one.** `[030]` §11.9: "Since the
-        address translation search is an extended read-modify-write
-        operation, the no-cache-case latency is incurred by the longest
-        address translation search required by the system." §12.1.2 gives
-        the pins --- "the MC68030 asserts `RMC` but not `CIOUT`" --- and
-        §11.7's own table counts "an RMC cycle to set the U bit ... as one
-        read and one write". `ap_m68030_walk.h` already cites the rule from
-        §9; what is missing is the *bus*: the walk reads descriptors through
-        a plain callback (`machine_table_fetch`) with no bus object, so
-        there is no cycle on which to assert anything.
-        **What would unblock it**: the same **resumable sequencer** item, not
-        the per-cycle processor one, which closed 2026-09-08 without reaching
-        inside an instruction. The
-        observable difference is a DMA grant landing inside a table search,
-        which the identity boot does not exhibit.
+  - [x] **A translation table search locks the bus, 2026-09-16** -- §11.9 calls
+        it "an extended read-modify-write operation" and §12.1.2 gives the pins,
+        and `ap_m68030_walk.h` had cited the rule since it was written with
+        nothing asserting it: the walk had no bus object to assert on. It has
+        one now. The search opens in §7.7.4's first-read phase, locks for the
+        whole walk, and restores the *enclosing* operation's phase, so a `TAS`
+        that searches mid-operation does not come out unlocked. **The descriptor
+        fetches still run no bus cycles**, so nothing arbitrates between them --
+        routing them through the bus is a separate change and is named here
+        rather than assumed. Both identity hashes unchanged: the lock is a
+        refusal and this boot never asks. *Verification: `access_suite` 20 -> 22;
+        `ctest` 153/153. Detail in `PROJECT_STATUS.md`.*
 
 - [x] **Where the time goes, measured** — and the first thing the measurement
       found was that the profile was measuring the instrument. A stepped boot

@@ -384,6 +384,54 @@ static fill_040_t allocate_line_040(const ap_m68030_access_ctx_t *access,
   return FILL_040_CACHED;
 }
 
+/* ## A translation table search is an extended read-modify-write
+ *
+ * `[030]` §11.9: "Since the address translation search is an **extended
+ * read-modify-write operation**, the no-cache-case latency is incurred by the
+ * longest address translation search required by the system." §12.1.2 gives the
+ * pins -- "the MC68030 asserts `RMC` but not `CIOUT`" -- and §11.7's table
+ * counts "an RMC cycle to set the U bit ... as one read and one write", so the
+ * search's own history-bit write-back is inside the same lock.
+ *
+ * `ap_m68030_walk.h` has cited the rule from §9 since it was written. What was
+ * missing was the *bus*: the walk reads descriptors through a plain callback
+ * with no bus object, so there was no cycle on which to assert anything, and
+ * the plan named it as waiting on the sequencer.
+ *
+ * **With the bus arbitrated inside the cycle there is somewhere to say it.**
+ * These two calls bracket a search: the first acquires the bus and drives
+ * `RMC` in §7.7.4's first-read phase, which is the one moment a request is
+ * still acted on; the second closes the lock for the rest of the search, which
+ * is what "extended" means -- the whole tree walk, not one descriptor.
+ *
+ * **What it does *not* do, stated so the gap is not mistaken for coverage**:
+ * the descriptor fetches themselves still run no bus cycles, so they are
+ * instantaneous and nothing arbitrates *between* them. Routing them through the
+ * bus is a separate change with its own timing consequences. What is closed
+ * here is the lock: a master cannot take the bus across a search, and a search
+ * cannot begin while one holds it. Both were previously untrue. */
+static void begin_table_search(ap_m68030_access_ctx_t *access) {
+  if (access->bus_acquire == NULL) {
+    return;
+  }
+  /* §7.7.4's opening cycle: the bus must be owned, and a request arriving here
+   * still walks the arbiter to its grant states. */
+  (void)access->bus_acquire(access->context, AP_M68030_RMC_FIRST_READ);
+  /* And then the lock closes for the remainder of the search. */
+  (void)access->bus_acquire(access->context, AP_M68030_RMC_LOCKED);
+}
+
+/* Restore the phase the enclosing operation is in: a search that ran inside a
+ * `TAS` is still inside it, and one that did not is over. */
+static void end_table_search(ap_m68030_access_ctx_t *access) {
+  if (access->bus_acquire == NULL) {
+    return;
+  }
+  (void)access->bus_acquire(access->context, access->rmc
+                                                 ? AP_M68030_RMC_LOCKED
+                                                 : AP_M68030_RMC_NONE);
+}
+
 static ap_m68030_access_result_t access_read_040(ap_m68030_access_ctx_t *access,
                                                  uint32_t logical,
                                                  uint8_t function_code,
@@ -684,10 +732,12 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
           .write = false,
           .read_modify_write = access->rmc,
           .supervisor = (function_code & 4u) != 0u};
+      begin_table_search(access);
       const ap_m68030_walk_result_t walk =
           ap_m68030_walk(access->tc, access->root, logical, &search_access,
                          access->table_fetch, access->table_update,
                          access->context);
+      end_table_search(access);
       out.descriptor_fetches = walk.descriptor_fetches;
       (void)ap_m68030_walk_fill_atc(access->atc, &walk, &search_access,
                                     function_code, logical,
@@ -879,10 +929,12 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
           .write = true,
           .read_modify_write = access->rmc,
           .supervisor = (function_code & 4u) != 0u};
+      begin_table_search(access);
       const ap_m68030_walk_result_t walk =
           ap_m68030_walk(access->tc, access->root, logical, &search_access,
                          access->table_fetch, access->table_update,
                          access->context);
+      end_table_search(access);
       out.descriptor_fetches = walk.descriptor_fetches;
       (void)ap_m68030_walk_fill_atc(access->atc, &walk, &search_access,
                                     function_code, logical,

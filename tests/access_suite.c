@@ -192,12 +192,29 @@ static void test_the_opening_read_of_a_lock_is_first_read_and_the_rest_locked(
   ctx.bus_acquire = record_phase;
   seen_count = 0;
 
-  /* Outside any operation. A cold read misses the cache, so a cycle runs and
-   * the hook is reached -- a hit would run none, which is why each step below
-   * uses an address the one before it did not touch. */
+  /* **Warm the translation first, and the reason is the other half of this
+   * item.** A table search is itself an extended read-modify-write and now
+   * brackets itself with its own phases, so a *cold* access reaches the hook
+   * several times -- once for the search's opening read, once as it closes the
+   * lock, once as it restores, and once for the data cycle. That is correct and
+   * it is not what this test is about, so the ATC entry is made resident first:
+   * a read to establish it and a write so its `M` bit is set, since §9.4 makes
+   * the first write to a clean page run a search of its own.
+   *
+   * Every address below is inside the same 4-KB page, so one search covers all
+   * of them and the measured cycles are data cycles alone. The cache is cleared
+   * afterwards so each read still misses and runs one. */
+  (void)ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  (void)ap_m68030_access_write(&ctx, ADDRESS, FC_SUPERVISOR_DATA, 0u, 1u);
+  ap_m68030_cache_clear(&m.cache);
+  seen_count = 0;
+
+  /* Outside any operation. A cache miss runs a cycle and the hook is reached --
+   * a hit would run none, which is why each step below uses an address the one
+   * before it did not touch. */
   (void)ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
   TEST_ASSERT_EQUAL_UINT_MESSAGE(1u, seen_count,
-                                 "a cold read must run one bus cycle");
+                                 "a translated read must run one bus cycle");
   TEST_ASSERT_EQUAL_UINT_MESSAGE(AP_M68030_RMC_NONE, seen_phase[0],
                                  "an ordinary access is not part of a lock");
 
@@ -236,6 +253,77 @@ static void test_the_opening_read_of_a_lock_is_first_read_and_the_rest_locked(
   TEST_ASSERT_EQUAL_UINT_MESSAGE(
       AP_M68030_RMC_FIRST_READ, seen_phase[5],
       "a later operation opens with its own first read cycle");
+}
+
+/* ## A translation table search locks the bus, because §11.9 says it is one
+ *
+ * "Since the address translation search is an **extended read-modify-write
+ * operation**, the no-cache-case latency is incurred by the longest address
+ * translation search required by the system." §12.1.2 gives the pins -- "the
+ * MC68030 asserts `RMC` but not `CIOUT`" -- and §11.7's table counts "an RMC
+ * cycle to set the U bit ... as one read and one write", so the history-bit
+ * write-back is inside the same lock.
+ *
+ * `ap_m68030_walk.h` had cited the rule from §9 since it was written and
+ * nothing asserted it: the walk reads descriptors through a plain callback with
+ * no bus object, so there was no cycle to assert anything on, and the plan
+ * named it as waiting on the sequencer. With the bus arbitrated inside the
+ * cycle there is somewhere to say it.
+ *
+ * The assertion is on the **phases**, in order: the search opens in §7.7.4's
+ * first-read phase -- the one moment a request is still acted on -- then closes
+ * the lock for the whole walk, then restores. "Extended" is the point: the lock
+ * spans the tree, not one descriptor. */
+static void test_a_table_search_locks_the_bus_for_its_whole_walk(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+  ctx.bus_acquire = record_phase;
+  seen_count = 0;
+
+  /* Cold: nothing in the ATC, so this access must search. */
+  const ap_m68030_access_result_t r =
+      ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(r.ok);
+  TEST_ASSERT_TRUE_MESSAGE(r.descriptor_fetches > 0,
+                           "this test needs an access that actually searches");
+
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      4u, seen_count,
+      "a searching read brackets its walk and then runs its data cycle");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(AP_M68030_RMC_FIRST_READ, seen_phase[0],
+                                 "the search opens in the first-read phase");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(AP_M68030_RMC_LOCKED, seen_phase[1],
+                                 "and then locks for the whole walk");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(AP_M68030_RMC_NONE, seen_phase[2],
+                                 "and releases when the walk is done");
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      AP_M68030_RMC_NONE, seen_phase[3],
+      "the data cycle that follows is an ordinary one");
+}
+
+/* And a search that runs *inside* an indivisible operation must not release the
+ * lock the operation is holding when it finishes. A `TAS` whose page is not yet
+ * resident searches in the middle of its own read-modify-write, and dropping
+ * `RMC` there would let a master in where §7.7.1 forbids it. */
+static void test_a_search_inside_a_lock_restores_the_lock_it_interrupted(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+  ctx.bus_acquire = record_phase;
+  seen_count = 0;
+
+  ctx.rmc = true;
+  (void)ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+
+  TEST_ASSERT_EQUAL_UINT(4u, seen_count);
+  TEST_ASSERT_EQUAL_UINT(AP_M68030_RMC_FIRST_READ, seen_phase[0]);
+  TEST_ASSERT_EQUAL_UINT(AP_M68030_RMC_LOCKED, seen_phase[1]);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      AP_M68030_RMC_LOCKED, seen_phase[2],
+      "a search inside an operation restores that operation's lock");
+  /* The data cycle is the operation's opening read, which is still the first
+   * read cycle of the operation itself -- the search's lock was a different,
+   * nested one and does not consume it. */
+  TEST_ASSERT_EQUAL_UINT(AP_M68030_RMC_FIRST_READ, seen_phase[3]);
 }
 
 /* The first access misses everything: the MMU is consulted, a table search
@@ -723,5 +811,7 @@ int main(void) {
   RUN_TEST(test_a_narrow_device_read_is_addressed_after_translation);
   RUN_TEST(test_a_narrow_read_positions_its_byte_by_the_bus_address);
   RUN_TEST(test_the_opening_read_of_a_lock_is_first_read_and_the_rest_locked);
+  RUN_TEST(test_a_table_search_locks_the_bus_for_its_whole_walk);
+  RUN_TEST(test_a_search_inside_a_lock_restores_the_lock_it_interrupted);
   return UNITY_END();
 }
