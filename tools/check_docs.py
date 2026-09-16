@@ -783,6 +783,40 @@ def check_cursor_census(problems: list[str]) -> int:
     return 1
 
 
+def check_every_suite_is_claimed(problems: list[str]) -> int:
+    """A body of tests that no status row accounts for.
+
+    `check_completeness_claims` catches a row that opens "working" and then
+    admits it is not. **The mirror failure is not caught by anything, and it
+    happened**: four rows read "not started" for subsystems that were finished --
+    the 68040 MMU, which boots Domain/OS; the board cache; the WD7000; and
+    `CMP2`/`CHK2`/`CAS`/`CAS2`, all four of which execute. A reader deciding what
+    is left would have been told to build things that exist.
+
+    Twelve suites, 185 tests, were claimed by no row at all -- whole subsystems
+    with no entry: the parity circuit, the Bt458, the 68851's coprocessor
+    interface and decode, the 68040's registers, descriptors, FPU subset and
+    four timing tables.
+
+    The check is the cheapest thing that would have found them: every
+    `tests/*_suite.c` the tree builds must be named somewhere in
+    `PROJECT_STATUS.md`. It cannot tell whether a row's *words* are true -- no
+    check can -- but a suite nothing mentions is a body of work the status
+    document does not know about, and that is mechanical.
+    """
+    if not STATUS.is_file() or not TESTS.is_dir():
+        return 0
+    text = STATUS.read_text()
+    checked = 0
+    for path in sorted(TESTS.glob("*_suite.c")):
+        checked += 1
+        if "`%s`" % path.stem not in text:
+            problems.append(
+                f"PROJECT_STATUS.md: no row names `{path.stem}` -- a suite the "
+                "tree builds that the status document does not account for")
+    return checked
+
+
 def check_provisional_census(problems: list[str]) -> int:
     """A `PROVISIONAL` that lands in the source and in neither register.
 
@@ -883,6 +917,7 @@ def main() -> int:
     checked += check_walk_page_counts(problems)
     checked += check_provisional_census(problems)
     checked += check_cursor_census(problems)
+    checked += check_every_suite_is_claimed(problems)
 
     for problem in sorted(set(problems)):
         print(problem)
