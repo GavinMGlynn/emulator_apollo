@@ -6199,8 +6199,12 @@ and 14,642 history updates. The DS5500 stayed at `08591C51E9D4372F`, because a
 digest moves and nothing else does. **DN3500 `DA70126426C9A937`** at the same
 1,833,793,487 clocks, **DS5500 `D8B6F9244ACEF028`** at the same 27,925,468 --
 and every other line of both reports is byte-identical to the run before, which
-is what makes this a re-hashing rather than a change. *This is the current
-pair.*
+is what makes this a re-hashing rather than a change.
+
+**And once more when `devices_advance_mid_access` went**, the inert flag that
+deletion had left behind, on exactly the same terms and checked the same way:
+**DN3500 `A0969377600D155E`**, **DS5500 `DFC7700AF195DBE9`**, identical clocks
+and reports identical but for the hash line. *This is the current pair.*
 
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it
@@ -21483,12 +21487,18 @@ re-hashing from a change. The probe goldens move the same way, and there the
 evidence is in the file: `ran`, `status`, `d0`, `pc`, `clocks` and `berr` are
 unchanged for all ten probes and only the hash column differs.
 
-**One thing the deletion left inert and it is named rather than hidden.**
-`devices_advance_mid_access` selected a block that the cycle schedule had
-already made dead, and that block is gone — the access's instant now reaches
-every device unconditionally, which is strictly stronger than what the flag
-asked for. The field survives because it is hashed and removing hashed state
-moves every golden for no behaviour; that it now selects nothing is a plan item.
+**And the inert flag the deletion left behind is gone too.**
+`devices_advance_mid_access` selected a block the cycle schedule had already
+made dead, and the access's instant now reaches every device unconditionally —
+strictly stronger than what the flag asked for: for every access, rather than
+the one a caller remembered to enable. It was carried for one commit on the
+grounds that removing hashed state moves every golden for no behaviour, and
+then removed anyway, because *a flag that selects nothing is the defect this
+project keeps finding in other people's code and its own*, and the re-bless
+costs one run it has already learned how to check. `--mid-access-devices` goes
+with it. References move a second time on the same terms: **DN3500
+`A0969377600D155E`**, **DS5500 `DFC7700AF195DBE9`**, identical clocks, reports
+identical but for the hash.
 
 *Verification: `ctest` 153/153 on `linux-debug` and `linux-release`; both
 identities re-run on the release build and diffed line by line against their

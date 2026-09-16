@@ -322,7 +322,6 @@ static void print_usage(const char *program_name) {
           "                        through the tick rather than one instruction\n"
           "                        at a time. The two must agree: a differing\n"
           "                        state hash means the tick reorders something\n"
-          "  --mid-access-devices  advance devices to the instant each access\n"
           "                        happens, so a device output is visible to the\n"
           "                        instruction still executing. Off by default:\n"
           "                        the two schedules are observably different and\n"
@@ -2814,7 +2813,6 @@ static ap_ring_medium_t g_ring_segment;
  * The two differ observably -- `A354786119A3931D` against `27AAE57F4EF4E97E`
  * on the same 350 M boot, with identical clocks -- and which matches the
  * hardware is a question for the oracle rather than a preference. */
-static bool g_devices_mid_access = false;
 
 
 /* Drive the boot one *machine cycle* at a time through `ap_machine_tick`
@@ -4782,7 +4780,6 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
    * clock over another machine's address space. */
   ap_machine_init_model(&machine, ram, ram_bytes, model);
   ap_machine_set_board(&machine, board);
-  machine.devices_advance_mid_access = g_devices_mid_access;
   machine.watch_write_address = watch_write;
   machine.mmu_fault_stop_address = stop_mmu_fault_at;
   machine.exception_stop_vector = stop_vector;
@@ -7213,7 +7210,6 @@ static int boot_from_tape(const char *path, uint64_t limit) {
   ap_machine_t machine;
   ap_machine_init(&machine, ram, ram_bytes);
   ap_machine_set_board(&machine, board);
-  machine.devices_advance_mid_access = g_devices_mid_access;
   for (uint32_t i = 0; i < image.length; i++) {
     if (!ap_machine_write(&machine, image.load_address + i, 1u,
                           image.data[i])) {
@@ -7543,11 +7539,6 @@ int main(int argc, char **argv) {
     }
     if (strcmp(argv[i], "--cycle-stepped") == 0) {
       g_cycle_stepped = true;
-      i++;
-      continue;
-    }
-    if (strcmp(argv[i], "--mid-access-devices") == 0) {
-      g_devices_mid_access = true;
       i++;
       continue;
     }

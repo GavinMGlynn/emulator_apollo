@@ -238,15 +238,13 @@ static unsigned machine_wait_states(void *context, uint32_t physical,
    * all: devices advance to an absolute instant carrying their own remainders,
    * so reaching the end of the instruction in two steps is the same as reaching
    * it in one. */
-  /* **`devices_advance_mid_access` is subsumed and its block is gone.** It
-   * advanced one device to the instant of the access, which is now what every
-   * access does unconditionally: `ap_board_read`/`ap_board_write` take the
-   * instant and carry the addressed device to it. The flag's own schedule was
-   * strictly weaker -- one device, one instant, and only when asked.
-   *
-   * The field survives because it is hashed, and removing hashed state moves
-   * every golden for no behaviour; that it now selects nothing is a named plan
-   * item rather than a silence. */
+  /* **The access's instant reaches every device, so there is no flag here.**
+   * `ap_board_read`/`ap_board_write` carry `now` and advance the addressed part
+   * to it, which is what `devices_advance_mid_access` used to ask for and is
+   * strictly stronger: unconditional, and for every access rather than the one
+   * a caller remembered to enable. The flag and its field are gone with the
+   * schedule that needed them.
+   */
 
   const ap_time_t needed = ap_board_access_time(machine->board, physical, read);
   if (needed == 0u) {
@@ -1533,7 +1531,6 @@ static uint64_t machine_hash_into(ap_hash_t *stp, const ap_machine_t *machine) {
   ap_hash_scope(&st, "machine.schedule");
   ap_hash_u64(&st, machine->last_instruction_clocks);
   ap_hash_u64(&st, machine->instruction_start_clocks);
-  ap_hash_u8(&st, machine->devices_advance_mid_access ? 1u : 0u);
 
   /* `bus_errors` is deliberately absent -- see ap_machine.h. It is reported by
    * `ap_machine_state` instead, and it keeps company with the rest of

@@ -26,11 +26,16 @@
 # ## The reference
 #
 #     executed     4462047 instruction(s)
-#     state hash   D8B6F9244ACEF028
+#     state hash   DFC7700AF195DBE9
 #     final PC     0000292C (boot PROM)
 #     clocks       27925468
 #
-# As of 2026-09-16, when the legacy instruction-boundary schedule was deleted
+# As of 2026-09-16, after the legacy instruction-boundary schedule was deleted
+# and `devices_advance_mid_access` with it -- both **coverage only**, each
+# removing a hashed field and moving nothing else. `D8B6F9244ACEF028` was the
+# value between the two.
+#
+# The earlier note, on the first of those two removals:
 # and `pending_cycles` and `defer_cycle_delivery` went with it. **Coverage
 # only**: both were hashed, so removing them moves the digest and nothing else
 # -- every other line of the report, the clock count included, is byte-identical

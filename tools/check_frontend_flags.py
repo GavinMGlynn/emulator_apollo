@@ -569,7 +569,6 @@ def main() -> int:
                      "--configure", "--cycle-stepped",
                      "--disk-writeback",
                      "--dump-logical", "--dump-state", "--dump-walk",
-                     "--mid-access-devices",
                      "--oracle-quirk (the quirk applied, as opposed to its "
                      "refusal)",
                      "--service-mode", "--tape", "--time-instructions"):
