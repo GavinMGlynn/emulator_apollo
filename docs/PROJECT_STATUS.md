@@ -6188,6 +6188,13 @@ instructions and 27,925,641 clocks, both exactly. So the escape hatch is
 faithful and the schedule is demonstrably the cause, on two machines with
 different processors.
 
+**And the DN3500 moves once more the same day, to `B84BEA19E9D3EB16` at
+1,833,793,487 clocks**, when the translation table search stopped being free:
+its descriptor fetches are bus cycles now, +172,494 clocks over 42,582 fetches
+and 14,642 history updates. **The DS5500 stays at `08591C51E9D4372F`**, because
+a 68040 translates through a different path whose search is still unpriced --
+a named plan item, not an oversight. *This is the current pair.*
+
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it
 should not touch a DN3500. Checking that by reasoning is not the standard here,
