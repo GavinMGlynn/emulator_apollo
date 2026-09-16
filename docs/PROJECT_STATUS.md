@@ -21344,6 +21344,76 @@ the hardware.
 | --- | --- | --- | --- |
 | 68030 `RTE` from a bus fault frame | **Re-executes** the faulted instruction from the start rather than resuming mid-instruction | The real part resumes from the internal registers it saved, and this model has none to save | Needs the long frame's internal registers, which need a microsequencer model. Exact meanwhile when the faulted access precedes any side effect — every case the boot PROM reaches — and wrong for an instruction that had already committed one |
 
+## The profile after the cycle schedule, and one refutation (2026-09-16)
+
+Item 6's own text says "a re-profile has moved the target" and then names the
+targets it found. Moving the arbitration point into the cycle moved them again,
+so the item's basis is re-measured here before anything is built on it.
+
+`perf record`, release build, 60 M instructions of the reference boot, 2,000
+samples — enough to rank the top entries and **not** enough to separate anything
+at the 1% line, which is why the tail is not listed.
+
+| share | symbol |
+| --- | --- |
+| 9.48% | `ap_board_sample_interrupts` |
+| 7.85% | `ap_board_bus_tick` |
+| 7.18% | `ap_m68030_step` |
+| 7.02% | `ap_master_tick` |
+| 6.85% | `boot_from_prom` (the frontend's own loop) |
+| 6.31% | `ap_machine_run` |
+| 5.10% | `fill_to_decoded` |
+| 4.18% | `ap_sio_advance` |
+| 4.09% | `ap_board_advance` |
+| 2.88% | `ap_sio_interrupt_next_change` |
+| 2.84% | `ap_m68030_decode` |
+| 2.42% | `ap_m68030_arb_tick` |
+
+**The shape has changed and it changes what item 6 is about.** When the item was
+written the instruction pipeline was the largest share and `ap_board_advance`
+was the thing to skip. Now the **bus and arbiter path is the largest cluster** —
+`ap_board_bus_tick` 7.85%, `ap_master_tick` 7.02% and `ap_m68030_arb_tick` 2.42%
+are **17.3%** between them — because the schedule ticks them once per processor
+clock rather than in a batch per instruction. `ap_board_advance` is 4.09%, which
+is *lower* than before despite being called several times more often: it was
+already cheap when nothing is due, which is also why the whole schedule change
+cost only 1.3% of wall clock.
+
+### `ap_master_tick`: 7% for an expansion card that is not fitted, and the
+### obvious fix is slower
+
+**No production code attaches a bus master.** `ap_board_attach_master` is called
+nowhere in `src/` outside the board's own definition, so every machine this core
+builds runs a permanently idle adapter and this function ran on all 1.8 billion
+of the boot's bus ticks for hardware that is absent.
+
+*It cannot simply be skipped*, and establishing that is the useful half. The two
+writes it performs are load-bearing: `ap_arbiter_request` shares
+`DMA_ARBITER_LINE` with the DMA controller — both drive **line 0** — and the
+board sets that line before `ap_arbiter_tick` while this clears it after, so the
+arbiter samples between them and never sees the cleared state. On the tick that
+takes `ap_board_bus_tick`'s `dma_possible` fast path nothing sets it again, so a
+skipped clear would leave the arbiter holding a request that no longer exists.
+The redundancy is benign only because of that ordering.
+
+**So the candidate was to compute the priority encode lazily** — `selected`
+reaches exactly two expressions, one behind `port->request &&` and one in a
+switch arm reachable in no other state, so substituting `false` outside them is
+an identity. It is **REFUTED**: three interleaved pairs, **61.098 / 61.011 /
+61.018 s** against **62.724 / 62.901 / 62.713 s**, a consistent **2.8% slower**,
+state hash `43EE6D5A22C006C0` throughout. Reverted.
+
+The reason is that `ap_i8237_service_pending` already returns on its first
+branch when no channel is asking, so it was nearly free, and the guard added an
+unpredictable branch in front of it. **`ap_master_tick`'s 7% is per-call
+overhead at 1.8 billion calls, not the work inside it.** Recorded so the next
+reader does not spend the same afternoon: the only thing that could win here is
+not calling it, and the paragraph above is why that is not available.
+
+*Verification: `ctest` 153/153 with the candidate in place — it is
+identity-preserving and simply slower, which is the case worth recording,
+because a change that was wrong would have been caught by the hash instead.*
+
 ## The cycle schedule is the only schedule, and item 5 is closed (2026-09-16)
 
 `--cycle-bus` is gone; the bus is arbitrated inside each processor cycle on

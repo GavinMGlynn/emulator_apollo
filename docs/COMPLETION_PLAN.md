@@ -4985,6 +4985,24 @@ Only after the reference core is proven, and only under an identity harness.
       `fill_to_decoded` 9.8%, `ap_m68030_decode` 4.4% — against
       `ap_board_write` 8.4%, `ap_board_sample_interrupts` 8.0%,
       `ap_sio_advance` 6.8% and `ap_board_read` 5.1%.
+      **RE-PROFILED AGAIN 2026-09-16, after the bus became arbitrated inside the
+      cycle, and the shape has changed.** The **bus and arbiter path is now the
+      largest cluster** — `ap_board_bus_tick` 7.85%, `ap_master_tick` 7.02% and
+      `ap_m68030_arb_tick` 2.42%, **17.3%** between them — because they are
+      ticked once per processor clock rather than batched per instruction.
+      `ap_board_sample_interrupts` is still the largest single entry at 9.48%,
+      and `ap_board_advance` has *fallen* to 4.09% despite being called several
+      times more often, which is also why the schedule change cost only 1.3% of
+      wall clock. **So this item's premise — that device advancing is the thing
+      to skip — no longer holds**, and what it should become is a question for a
+      fresh design rather than a continuation of the refuted one.
+      **One candidate tried and REFUTED**: `ap_master_tick` runs on every bus
+      tick for an adapter **no production code attaches**, and computing its
+      priority encode lazily is identity-preserving and **2.8% slower** over
+      three interleaved pairs. Its 7% is per-call overhead, not the work inside
+      it, and the call cannot be skipped — its `ap_arbiter_request` clear shares
+      `DMA_ARBITER_LINE` with the DMA controller and is load-bearing on the
+      `dma_possible` fast path. Detail in `PROJECT_STATUS.md`.
       **Two things are measured and should not be re-attempted blindly.** The
       sampler's residual 8.0% is the *firmware's* device polling, not the
       invalidation rule: narrowing that rule to device-only accesses changed
