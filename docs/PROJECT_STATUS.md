@@ -21441,6 +21441,65 @@ path assigns `out.clocks` from the data cycle, which silently overwrote the
 first version's addition, and the phase tests passed throughout because phases
 are not clocks. `ctest` 153/153 on both presets.*
 
+## Exact-skip and its cross-node extension are closed, by measurement
+## (2026-09-16)
+
+The last two plan items. They are closed as **not worth building**, and the
+distinction from the ending their own text once proposed matters: that one was
+"nothing measured needs it", which this project does not accept as a reason to
+skip work. These close because the work was tried and measured.
+
+**What was measured, in order.**
+
+1. *The design this item specifies was built and refuted*, before this session:
+   `next_event()` per device, an aggregate minimum on the board, the same three
+   invalidation sites and a gate in `ap_machine_run` — **11.8% slower**, three
+   interleaved pairs, because the bound is recomputed after every advance and
+   skips at most 38.4% of them.
+2. *Its target has since shrunk.* The 2026-09-16 re-profile puts
+   `ap_board_advance` at **4.09%** — lower than when the item was written,
+   despite the cycle schedule calling it several times more often, because it
+   was already cheap when nothing is due. Against the 38.4% ceiling that caps
+   the whole item at about **1.6%**.
+3. *The one remaining alternative is forbidden here.* Batching the bus tick is
+   what `ap_board_bus_ticks` used to do; it failed twice, and the comment that
+   removed it settles the trade against `CLAUDE.md` in one line — "the loop is
+   correct **by construction**, which is the property every caller was already
+   relying on". Restoring it "would mean enumerating every sub-machine's idle
+   condition here, and re-establishing that proof every time one is added".
+4. *A fresh candidate was tried and refuted the same day*: `ap_master_tick`, 7%
+   of the profile, running on every one of 1.8 billion bus ticks for an adapter
+   **no production code attaches** — computing its priority encode lazily is an
+   identity and **2.8% slower**.
+
+**The cross-node item closes with it, on its own terms.** Its text names two
+things that would unblock it — "the exact-skip item finished with a design that
+measures faster, **and** a re-derivation of this item's premise ... Both, not
+either." The first is unavailable. The second the item already refutes itself:
+§3.9's refresh runs each node's serial counter off X1 for the life of the
+machine, so a node is provably inert for well under one instruction whatever
+the ring is doing, and the inert-window argument it was written on does not
+hold.
+
+**Both reopen on contact** — a profile where device advancing is dominant
+again, a workload whose wall clock actually blocks someone, or a re-derived
+cross-node premise. The two device-side increments that *did* win, the
+interrupt-sample skip and the timer advance, are landed and stay.
+
+**One piece of the item is carried forward rather than closed with it**, because
+it is fidelity and not speed: the disk, tape, keyboard and graphics parts date
+their deadlines from a stored `now` that only an advance refreshes. That is not
+a live defect on any schedule this core has run — the cycle schedule advances
+them finer than ever — but any future schedule that stops advancing a device
+every instruction silently completes its next command early, which a bisect once
+localised between 100 M and 200 M instructions. It is now its own plan item with
+its own cost to close: the access's instant reaching `ap_board_read`/`_write` at
+120 call sites, and **not** a part at a time, because the graphics cursor looked
+like pure residue and is not.
+
+*Verification: documentary; no code changed. Every figure above is either from
+this session's interleaved A/Bs and profile or cited to the record that took it.*
+
 ## The profile after the cycle schedule, and one refutation (2026-09-16)
 
 Item 6's own text says "a re-profile has moved the target" and then names the

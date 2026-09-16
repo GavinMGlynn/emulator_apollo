@@ -4985,187 +4985,46 @@ Only after the reference core is proven, and only under an identity harness.
       *Verification: bit-identical to the pre-change binary at seven bounds to
       350 M across three separately built binaries; 273/275 s → 253.5/255.4 s;
       `ctest` 129/129, `board_suite` 36 → 37. Detail in `PROJECT_STATUS.md`.*
-- [ ] Exact-skip scheduling: `next_event()` and `skip(n)` per subsystem, CPU
-      half and devices half of the tick split so a span-breaking I/O write still
-      runs its devices half canonically. *Verification: entire probe suite and
-      long boot hashes byte-identical to the reference core.*
-      **Awaiting:** the CPU half. Two device-side increments below survive —
-      the interrupt-sample skip and the timer advance — each verified by an
-      unchanged state hash and boot reports identical line for line.
-      **The cumulative figure is WITHDRAWN, 2026-09-08**, because one of its
-      three terms was: the bus-tick batching that contributed 1.311x was not
-      equivalent to the loop it replaced and has been removed (`FINDINGS.md`
-      C254). It read "**45.3 s → 30.3 s, 1.49x**", and that number cannot be
-      carried with a term taken out of it.
-      *Nor is it simply re-measurable by subtraction*: 45.3 s was this machine's
-      baseline months and many commits ago, and comparing it against today's
-      **44.0 s** would be the cross-time comparison this project has already
-      recorded five withdrawn conclusions from. The two surviving increments'
-      own **interleaved** A/Bs stand -- those were measured pairwise, on one
-      tree, in one sitting -- and a cumulative figure needs a fresh baseline
-      taken the same way.
-      **A re-profile has moved the target.** With the device work reduced, the
-      instruction pipeline is now the largest share — `ap_m68030_step` 10.5%,
-      `fill_to_decoded` 9.8%, `ap_m68030_decode` 4.4% — against
-      `ap_board_write` 8.4%, `ap_board_sample_interrupts` 8.0%,
-      `ap_sio_advance` 6.8% and `ap_board_read` 5.1%.
-      **RE-PROFILED AGAIN 2026-09-16, after the bus became arbitrated inside the
-      cycle, and the shape has changed.** The **bus and arbiter path is now the
-      largest cluster** — `ap_board_bus_tick` 7.85%, `ap_master_tick` 7.02% and
-      `ap_m68030_arb_tick` 2.42%, **17.3%** between them — because they are
-      ticked once per processor clock rather than batched per instruction.
-      `ap_board_sample_interrupts` is still the largest single entry at 9.48%,
-      and `ap_board_advance` has *fallen* to 4.09% despite being called several
-      times more often, which is also why the schedule change cost only 1.3% of
-      wall clock. **So this item's premise — that device advancing is the thing
-      to skip — no longer holds**, and what it should become is a question for a
-      fresh design rather than a continuation of the refuted one.
-      **One candidate tried and REFUTED**: `ap_master_tick` runs on every bus
-      tick for an adapter **no production code attaches**, and computing its
-      priority encode lazily is identity-preserving and **2.8% slower** over
-      three interleaved pairs. Its 7% is per-call overhead, not the work inside
-      it, and the call cannot be skipped — its `ap_arbiter_request` clear shares
-      `DMA_ARBITER_LINE` with the DMA controller and is load-bearing on the
-      `dma_possible` fast path. Detail in `PROJECT_STATUS.md`.
-      **Two things are measured and should not be re-attempted blindly.** The
-      sampler's residual 8.0% is the *firmware's* device polling, not the
-      invalidation rule: narrowing that rule to device-only accesses changed
-      30.398 s to 30.324 s, inside the noise, because a serial status read
-      genuinely could have moved a line. And `ap_sio_advance` holds nothing
-      structurally wasteful — its loopback tail is a field read and a `set_input`
-      that already no-ops on an unchanged level, so its cost is per-call
-      overhead at twenty million calls.
-      **So what is left is the item's own title.** `skip(n)`: running the CPU
-      across a span without ticking devices, which needs a bound on *observable
-      state* rather than on an interrupt line — a stronger claim, because the
-      serial part's output-port square waves are readable at any instant.
-      **That blocker is now GONE, and it was a stored cursor rather than a
-      hardware fact.** `ap_mc68681_t` carried a `now` refreshed on *every*
-      advance, whether or not its counter moved, so that a program reading a
-      free-running clock pin got a level. But §4.2.11.6's clock is a **pure
-      function** of the instant and the programmed rate, so the instant belongs
-      to `ap_mc68681_output_pin`'s caller and the part need remember no time at
-      all — the same argument that took the PTM's `now` away. The field is
-      deleted, `ap_sio_advance`'s unconditional two-store prologue with it, and
-      the signature now *forces* a caller to name its instant, so the property
-      is structural rather than only tested.
-      *Verification: `ctest` 138/138, `sio_suite` 29 → 30 — advance once, then
-      read the pin at instants no advance ever saw and watch the wave still
-      move — and identity boot `A354786119A3931D` unchanged.*
-      **But the aggregate bound it unblocks has a measured ceiling of 38%, and
-      that is worth knowing before building it.** §3.9's memory refresh runs the
-      serial part's counter off X1 for the life of the machine, and X1 is
-      3.6 MHz against a 25 MHz CPU — **6.944 CPU clocks per pulse against a mean
-      instruction of 4.278**, so 0.616 pulses fall per instruction and only
-      **38.4%** of instructions have no pulse due. The serial part is therefore
-      the binding term in any whole-board `next_event()`, and the most a
-      device-side skip can remove is 38.4% of `ap_board_advance`'s calls. Not
-      nothing, and not the order-of-magnitude the item's title suggests: this
-      board has a device whose observable state changes faster than the
-      processor executes. Detail in `PROJECT_STATUS.md`.
-      **The remaining work was built, and it is REFUTED by measurement.**
-      `next_event()` per device, the aggregate minimum on the board, the same
-      three invalidation sites and a gate in `ap_machine_run` -- all of it, and
-      it makes the reference core **11.8% slower**. Three interleaved pairs,
-      base `31.22/31.04/31.01` s against `34.74/34.77/34.81`, with the
-      interrupt half of the bound taken from the cache
-      `ap_board_sample_interrupts` already fills; recomputing it was 11% slower
-      again. The reason is structural: the bound is recomputed after *every*
-      advance and skips at most 38.4% of them, so it is paid eight times for
-      every three it saves. Not landed -- a 12% slowdown for no gain is
-      weakening the reference core, which is the one thing this phase may not
-      do. A version that could win would need an **incremental** bound, each
-      part publishing when its next event moves rather than the board asking,
-      and that is a different design from this item's.
-      **And it found a defect that outlives it.** The item calls this increment
-      "provably identity-preserving"; as specified it is not. Four parts -- the
-      disk, tape, keyboard and graphics -- date deadlines from a stored `now`
-      that only the advance refreshes (`ap_omti.c:352`,
-      `completion_at = omti->now + duration`), so a skipped advance made the
-      next disk command complete early: hash `03EE415450926A89` became
-      `58105715891CEA4E`, 99 clocks apart, bisected to between 100 M and 200 M
-      instructions. This is the third instance of a pattern already cured twice
-      here, in the PTM and the DUART. **Carrying the four cursors makes it
-      byte-identical**, and the prerequisite is now named for the per-cycle
-      processor item, which cannot stop advancing the board every instruction
-      until those four are dealt with. Detail in `FINDINGS.md` C152.
-      **The carry itself is NOT in the tree** -- checked 2026-08-18 rather than
-      assumed: it was part of the reverted patch and went out with it, so the
-      board-level carry helper that patch added is nowhere in `src/`, and
-      `ap_omti.c:352` still reads
-      `omti->completion_at = omti->now + duration`. Not a live defect --
-      `ap_board_advance_one` refreshes each device's cursor on every access that
-      reaches it, so the stored `now` *is* the caller's instant today -- and
-      exactly the latent hazard the next schedule has to clear first.
-      **And it cannot be done one small part at a time**, which was tried and
-      abandoned on 2026-08-19. The graphics cursor looked like pure residue --
-      `advance` writes it, `ap_graphics_beam` reads it, and the part's own
-      comment says the raster is "a function of the instant, not an
-      accumulation". It is not: `graphics_status` reads the beam from the
-      **register-read** path, and a register read has no instant of its own.
-      Every one of the four is that shape. So the instant has to reach
+- [x] **Exact-skip scheduling — CLOSED 2026-09-16 on measurement, not on
+      preference.** Three findings close it and none is "nothing needs it": the
+      design this item specifies was **built and measured 11.8% slower**; a
+      re-profile after the cycle schedule puts its target, `ap_board_advance`,
+      at **4.09%** against a measured **38.4%** ceiling, so the most it could
+      return is about 1.6%; and the one remaining alternative — batching the bus
+      tick — is **forbidden by this project's own recorded decision**, having
+      failed twice and been removed against `CLAUDE.md`'s "never weaken the
+      reference core to chase speed". A candidate tried the same day measured
+      **2.8% slower** over three interleaved pairs. The two device-side
+      increments that did win are landed and stay. *Reopens on contact*: a
+      profile where device advancing is dominant again, or a workload whose wall
+      clock actually blocks someone. Detail in `PROJECT_STATUS.md`.
+- [x] **Extend exact-skip across nodes — CLOSED 2026-09-16 with it**, and this
+      item's own text is why: it names two things that would unblock it, "the
+      exact-skip item finished with a design that measures faster, **and** a
+      re-derivation of this item's premise ... Both, not either." The first is
+      closed above as not available. The second this item already refutes
+      itself — §3.9's refresh runs each node's serial counter off X1 for the
+      life of the machine, so a node is provably inert for well under one
+      instruction whatever the ring is doing, and the inert-window argument the
+      item was written on does not hold. *Reopens on contact*, with a
+      re-derived premise, if a multi-node workload ever costs enough to want it.
+- [ ] **The four stored device cursors, carried out of the exact-skip item so
+      they are not closed with it.** The disk, tape, keyboard and graphics parts
+      date their deadlines from a stored `now` that only an advance refreshes
+      (`ap_omti.c`'s `completion_at = omti->now + duration`, and the same shape
+      in the other three). **Not a live defect** — every schedule this core has
+      ever run advances all four on a cadence at least as fine as an
+      instruction, and the cycle schedule made it finer still — but it is a
+      *fidelity* fragility rather than a performance one, which is why it
+      survives its parent: any future schedule that stops advancing a device
+      every instruction silently completes its next command early, as a
+      measured bisect once showed between 100 M and 200 M instructions.
+      **What closing it takes**: the access's instant reaching
       `ap_board_read`/`ap_board_write`, which is 120 call sites, 114 of them in
-      tests -- a single mechanical change to make with the schedule it is for,
-      not a series of small ones.
-  - [x] **The timer advance is skipped until a pulse is due**, the PTM keeping
-    no `now` of its own so nothing can be left stale. *Verification: interleaved
-    A/B, faster in all three pairs, 29.65 s against 30.20 s; hash and reports
-    unchanged; `ctest` 137/137.*
-    **And the serial part's equivalent was tried and removed**: provably safe,
-    but no measurable direction at n=3, so it is not worth a call per
-    instruction. Its blocker turned out to be hypothetical all the same --
-    `duart->now` is read only through `ap_mc68681_output_pin`, which no
-    production code calls. Detail in `PROJECT_STATUS.md`.
-  - [x] **WITHDRAWN 2026-09-08: the batch was never provably one, and it is
-    removed.** `ap_board_bus_ticks` decremented the refresh counter in its own
-    body instead of going through `ap_board_bus_tick`, so it ordered §2.4.6's
-    steal differently from the loop it replaced -- not equivalent even at n = 1
-    -- and a cycle-stepped boot disagreed with an instruction-stepped one from
-    instruction 86 onward. Removed: 37.8 s → 44.0 s on the 350 M boot, **1.16x**,
-    hash unmoved, the two schedules agreeing again. Detail in
-    `PROJECT_STATUS.md`; `FINDINGS.md` C254.
-    *The original claim is kept in `PROJECT_STATUS.md` beside its correction,
-    because a hash unchanged on one boot being read as proof of an equivalence a
-    second schedule then broke is the mistake worth remembering.*
-
-  - [x] **The interrupt sample is skipped when no source can have changed** --
-    `next_event()` for interrupt sources, an aggregate bound, and
-    `interrupt_valid_until` discarded by the three sites that reach a device.
-    *Verification: 45.3 s → **39.9 s**, 1.136x, state hash `A354786119A3931D`
-    unchanged; `board_suite` 47 → 50, `ctest` 137/137. Detail, and why the
-    serial part nearly made it worthless, in `PROJECT_STATUS.md`.*
-- [ ] Extend exact-skip across nodes: run node cores in parallel only within
-      provably inert windows between ring events. *Verification: whole-ring
-      state hash identical to the single-threaded reference.*
-      **That blocker is half cleared, 2026-08-19.** It read "`--ring-two-node`
-      runs two machines that execute their boot PROMs, but **neither runs
-      Domain/OS**", and both nodes now do: two whole machines with distinct node
-      IDs on one `ap_ring_sched` segment, each reaching
-      `Domain/OS kernel(7), revision 10.4` from its own installed volume, no
-      copies and no relabelling. So a multi-node workload whose wall clock this
-      could improve **exists**, and there is a whole-ring state to hash beyond
-      firmware.
-      What is *not* cleared is the prerequisite above it: this item extends the
-      exact-skip machinery across nodes, and that machinery's remaining half is
-      refuted by measurement (11.8% slower as specified, needing an incremental
-      bound instead). So the order stands -- exact-skip first, with a design
-      that wins -- but the reason has changed from "there is nothing to
-      optimise" to "the thing being extended is not finished".
-      **And one part of the design is already refuted by measurement.** The
-      window between ring events is not the binding term: §3.9's memory refresh
-      runs each node's serial counter off X1 for the life of the machine, at
-      6.944 CPU clocks per pulse against a mean instruction of 4.278 (the
-      exact-skip item above), so a *node* is provably inert for well under one
-      instruction at a time whatever the ring is doing. Parallelism across nodes
-      therefore cannot come from inert windows in the device sense; it would have
-      to come from the ring's own latency being long enough that two nodes cannot
-      observe each other inside it, which is a different argument and is not the
-      one this item is written on.
-      **What would unblock it**, stated in the form the other items use rather
-      than left to be inferred from the two paragraphs above: the exact-skip
-      item finished with a design that measures faster, **and** a re-derivation
-      of this item's premise, since the inert-window argument it was written on
-      is refuted by the paragraph above. Both, not either.
+      tests — a single mechanical change, and one that **cannot be done a part
+      at a time**: the graphics cursor looked like pure residue and is not,
+      because `graphics_status` reads the beam from the register-read path,
+      which has no instant of its own. All four are that shape.
 
 ## Phase 9 — Content testing
 
