@@ -193,4 +193,80 @@ bool ap_m68030_bus_tick(ap_m68030_bus_t *bus);
 /* True while a cycle is in progress. */
 [[nodiscard]] bool ap_m68030_bus_active(const ap_m68030_bus_t *bus);
 
+/* ---------------------------------------------------------------------------
+ * The rest of the machine, as seen from inside a processor bus cycle
+ *
+ * ## What this is for, and why it is not a resumable sequencer
+ *
+ * `[030]` §7.7 puts the processor at the bottom of the bus's priority order, so
+ * a DMA controller can take the bus **between any two bus cycles** -- including
+ * two cycles of one instruction. Until these existed this core could not
+ * express that: `ap_m68030_step` ran an instruction to completion in ordinary
+ * nested C and the machine charged the board its clocks afterwards, so
+ * arbitration happened only at instruction boundaries and an indivisible
+ * read-modify-write was one whole instruction wide.
+ *
+ * The plan called the fix a **resumable sequencer** and listed four ways to get
+ * one: an explicit state machine over the whole 8,377-line file, coroutines
+ * (not in C), a fiber or thread per CPU (which trades the determinism this
+ * project is built on), or re-execution on resume (invalid -- instructions have
+ * side effects before they commit). All four are large and three are bad.
+ *
+ * **There is a fifth, and it is what these two callbacks are.** The instruction
+ * does not need to *stop* inside an access; the rest of the machine needs to
+ * *run* inside one. So instead of the CPU yielding to a scheduler, the
+ * scheduler is called **from** the CPU, synchronously, at each clock of each
+ * external cycle. The C stack stays exactly where it is, the sequencing code is
+ * untouched, and determinism is unaffected -- the calls happen at points fixed
+ * by the program, not by a timer.
+ *
+ * It is behaviourally equivalent for every observable this machine has. A bus
+ * master cannot read or alter the processor's registers; what it can do is
+ * transfer while the processor is between cycles, and see memory in whatever
+ * state the processor's completed cycles have left it. Both of those now
+ * happen. The one thing an inversion cannot express is a *preemption* of the
+ * processor's own state mid-instruction, and the 68030 has none: a bus error is
+ * the only mid-instruction exit and it already works by unwinding this stack.
+ *
+ * *Recorded at this length because the plan's own text said this item was
+ * blocked on a rewrite it should not spend, and the reason it is not is a
+ * design choice rather than a discovery -- a later reader deciding whether to
+ * "finish" this properly should know the rewrite was considered and why it is
+ * not owed.*
+ *
+ * ## Re-entrancy, which is what makes the inversion safe
+ *
+ * The board never calls the processor. `ap_board_advance` walks devices,
+ * `ap_board_bus_tick` runs the arbiter and a DMA cycle, and none of them
+ * reaches `ap_m68030_*` or the access context's callbacks -- checked by grep
+ * over `board/`, and structural rather than incidental, since `src/core/board`
+ * does not include the CPU's headers at all. So a call out from inside a cycle
+ * cannot come back in.
+ * ------------------------------------------------------------------------- */
+
+/* Stall until the processor owns the bus, running everything else meanwhile,
+ * and answer how many processor clocks that took.
+ *
+ * Called immediately before an external cycle begins. Zero is the ordinary
+ * answer: the processor usually owns an idle bus. A non-zero answer is
+ * contention, and it is *measured* rather than charged -- the clocks are the
+ * ones a master actually spent holding the bus. */
+typedef unsigned (*ap_m68030_bus_acquire_fn)(void *context, bool rmc);
+
+/* One clock of a processor bus cycle has elapsed.
+ *
+ * Called once per `ap_m68030_bus_tick`, so the board's own bus advances in step
+ * with the processor's rather than in a batch afterwards. That is what lets a
+ * device's request line rise partway through an instruction and a DMA channel
+ * be paced at its own rate against a clock that is actually moving. *
+ *
+ * **`rmc` is carried on both**, because with the arbitration point inside the
+ * cycle the processor's `RMC` pin has to be driven from the cycle too. Driving
+ * it around the whole instruction -- which is what the machine did while the
+ * clocks were delivered afterwards -- makes the lock exactly one instruction
+ * wide, where §7.7.1 has the arbiter "ignore bus requests ... that occur after
+ * the first read cycle" and allow one *during* it. Passing the signal here is
+ * what lets `AP_M68030_RMC_FIRST_READ` finally be placed. */
+typedef void (*ap_m68030_bus_clock_fn)(void *context, bool rmc);
+
 #endif /* APOLLO_CPU_M68030_AP_M68030_BUS_H */

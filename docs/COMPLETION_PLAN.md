@@ -4892,6 +4892,25 @@ Only after the reference core is proven, and only under an identity harness.
       unmoved. Detail in `PROJECT_STATUS.md`.*
 
 - [ ] **A resumable sequencer, which is the last of the per-cycle item.**
+      **AUTHORISED 2026-09-16** on completeness grounds, against the
+      close-as-approximation ending this item's own text recommended. **The
+      mechanism has landed and the premise below is superseded**: no rewrite was
+      needed. The instruction does not stop inside an access -- the rest of the
+      machine runs inside one, through two callbacks the machine implements
+      (`bus_acquire`, `bus_clock`), which is the fifth option the list below does
+      not have. `--cycle-bus` selects it; the default path reproduces
+      `263FFF9099871086` exactly and the new one gives `43EE6D5A22C006C0` for
+      1.3% more wall clock, with the console byte-identical and the posted-code
+      sequence unchanged. A clamp in the first version drifted the bus 940 ticks
+      ahead of the clock over 350 M instructions and is replaced by a running
+      total. *Verification: `machine_suite` 78 -> 79, differential across both
+      paths; `ctest` 153/153 on both presets. Detail in `PROJECT_STATUS.md`.*
+      **Still owed before this ticks**: the two sub-items below, then
+      `--cycle-bus` as the only path with the goldens re-blessed.
+
+      *The original text follows, because it is the reasoning the item stood on
+      and the reason it sat unstarted for so long:*
+
       `ap_m68030_step` sequences an instruction in ordinary nested C across a
       6,966-line file, so it cannot stop inside an access; the alternatives are
       an explicit state machine (the whole file), coroutines (not in C), a fiber

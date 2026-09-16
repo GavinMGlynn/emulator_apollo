@@ -414,6 +414,12 @@ typedef struct {
   bool read_modify_write;
   ap_m68030_fill_fn fill;
   ap_m68030_wait_states_fn wait_states;
+  /* The rest of the machine, run from inside this cycle -- `ap_m68030_bus.h`
+   * says why that is the shape rather than a resumable sequencer. Both may be
+   * NULL, which is a processor with nothing else on its bus: every CPU-only
+   * test, and the state this core had before the two existed. */
+  ap_m68030_bus_acquire_fn bus_acquire;
+  ap_m68030_bus_clock_fn bus_clock;
   void *context;
 } ap_m68030_cache_request_t;
 

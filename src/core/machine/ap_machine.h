@@ -159,6 +159,49 @@ typedef struct {
    * instruction-stepped loop is byte-for-byte what it was. */
   unsigned pending_cycles;
   bool defer_cycle_delivery;
+
+  /* ## The bus arbitrated inside a cycle rather than between instructions
+   *
+   * `ap_m68030_bus.h` carries the design and why it is not the resumable
+   * sequencer the plan proposed. What lives here is the switch and its
+   * bookkeeping.
+   *
+   * With `cycle_bus` set, the processor calls `machine_bus_acquire` before each
+   * external cycle and `machine_bus_clock` for each of that cycle's clocks, so
+   * the board's bus advances and its devices run **between two cycles of one
+   * instruction**. Without it, the machine behaves exactly as it did: it stalls
+   * once before the instruction and replays the instruction's clocks against
+   * the bus afterwards.
+   *
+   * Kept as a switch rather than simply replacing the old path, because a state
+   * hash is only evidence when the same binary can produce both numbers. Every
+   * optimisation in this project was judged that way and this is a larger
+   * change than any of them. *It is not a permanent configuration knob*: the
+   * old path goes when the goldens have been re-blessed and the A/B is on the
+   * record. */
+  bool cycle_bus;
+  /* **Processor clocks already ticked onto the board's bus and elapsed into
+   * `now`** -- a machine-lifetime running total, not a per-instruction one.
+   *
+   * The invariant it exists to hold is that every processor clock ticks the
+   * board's bus exactly once and advances `now` exactly once, however the clock
+   * was spent. The catch-up at the foot of each step is therefore derived from
+   * `cpu.clocks` rather than from a per-instruction subtraction: whatever the
+   * hooks have already delivered, the difference is what is owed.
+   *
+   * **A per-instruction counter got this wrong and the boot measured it.** It
+   * subtracted the hooks' clocks from the instruction's and clamped the result
+   * at zero, so an instruction whose hooks ticked *more* than the step charged
+   * -- which happens, rarely, where a cycle's clocks do not all reach
+   * `cpu.clocks` -- delivered the excess and could never give it back. Over 350
+   * M instructions that drifted the bus **940 ticks ahead of the clock**, where
+   * the instruction-boundary path holds the two exactly equal. A running total
+   * cannot drift: a hook that ticks ahead simply means fewer ticks are owed
+   * later, and the two totals meet. */
+  uint64_t cycle_clocks_accounted;
+  /* What the hooks last drove onto the board's `RMC` pin, so the state is
+   * restored rather than left asserted when a cycle that asserted it ends. */
+  bool cycle_rmc_asserted;
   /* **And whether the instruction whose cycles are being handed out held the
    * bus for an indivisible read-modify-write.**
    *

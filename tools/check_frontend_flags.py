@@ -566,7 +566,8 @@ def main() -> int:
                      "--calendar-ram",
                      "--clock (the epoch reaching the calendar, as opposed to "
                      "its parsing)",
-                     "--configure", "--cycle-stepped", "--disk-writeback",
+                     "--configure", "--cycle-bus", "--cycle-stepped",
+                     "--disk-writeback",
                      "--dump-logical", "--dump-state", "--dump-walk",
                      "--mid-access-devices",
                      "--oracle-quirk (the quirk applied, as opposed to its "

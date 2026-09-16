@@ -375,12 +375,26 @@ ap_m68030_cache_read(ap_m68030_cache_t *cache, ap_m68030_bus_t *bus,
       (wait_states != NULL && answer.termination != AP_M68030_TERM_BERR)
           ? wait_states(context, physical_cycle, true)
           : 0u;
+  /* **The bus must be owned before the cycle starts**, and waiting for it is
+   * time the rest of the machine spends running. `[030]` §7.7 puts the
+   * processor at the bottom of the priority order, so this is where a DMA
+   * controller holding the bus actually stops the program -- between two of an
+   * instruction's cycles, which is what the arbitration point being here rather
+   * than at the instruction boundary buys. */
+  if (request->bus_acquire != NULL) {
+    result.clocks += request->bus_acquire(context, bus->rmc);
+  }
   while (ap_m68030_bus_active(bus)) {
     ap_m68030_bus_terminate(bus, bus->wait_states >= waits
                                       ? answer.termination
                                       : AP_M68030_TERM_NONE);
     (void)ap_m68030_bus_tick(bus);
     result.clocks++;
+    /* And the board's own bus advances with this one rather than in a batch
+     * afterwards, so a device's request line rises at the clock it rises on. */
+    if (request->bus_clock != NULL) {
+      request->bus_clock(context, bus->rmc);
+    }
     if (result.clocks > 64u) {
       break; /* a device that never answers is the caller's bug, not a hang */
     }

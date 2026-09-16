@@ -235,6 +235,12 @@ typedef struct {
    * it, and an access module that omitted it would report writethrough while
    * behaving like writeback. */
   ap_m68030_store_fn store;
+  /* The rest of the machine, run from inside a processor bus cycle. Handed
+   * down to `ap_m68030_cache_read` on the read side and used directly by the
+   * write cycle; `ap_m68030_bus.h` carries the reasoning. NULL for a processor
+   * with nothing else on its bus. */
+  ap_m68030_bus_acquire_fn bus_acquire;
+  ap_m68030_bus_clock_fn bus_clock;
 
   /* How long the addressed device takes to answer, in **wait states** — whole
    * clocks inserted before the cycle may advance.

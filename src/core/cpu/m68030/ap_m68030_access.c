@@ -772,6 +772,10 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
       .read_modify_write = access->rmc,
       .fill = access->fill,
       .wait_states = access->wait_states,
+      /* Handed down so the read cycle can run the rest of the machine from
+       * inside itself, exactly as the write cycle below does. */
+      .bus_acquire = access->bus_acquire,
+      .bus_clock = access->bus_clock,
       .context = access->context,
   };
   const ap_m68030_cache_access_t fetched =
@@ -937,6 +941,12 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
       access->wait_states != NULL
           ? access->wait_states(access->context, physical, false)
           : 0u;
+  /* The bus is acquired before the write cycle for the same reason the read
+   * path acquires it: this is the point a master can be holding it, and the
+   * two writes of a `MOVEM` are exactly the gap the plan named. */
+  if (access->bus_acquire != NULL) {
+    out.clocks += access->bus_acquire(access->context, write_bus->rmc);
+  }
   while (ap_m68030_bus_active(write_bus)) {
     ap_m68030_bus_terminate(write_bus,
                             write_bus->wait_states >= write_waits
@@ -944,6 +954,9 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
                                 : AP_M68030_TERM_NONE);
     (void)ap_m68030_bus_tick(write_bus);
     out.clocks++;
+    if (access->bus_clock != NULL) {
+      access->bus_clock(access->context, write_bus->rmc);
+    }
     if (out.clocks > 64u) {
       break; /* as the read path does: a device that never answers is a bug */
     }

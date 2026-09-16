@@ -1811,6 +1811,93 @@ static void test_a_bus_master_costs_the_processor_a_stall(void) {
   }
 }
 
+/* ## The bus is arbitrated **inside** the instruction, which is the whole item
+ *
+ * The test above records the approximation: with arbitration at the instruction
+ * boundary, a `MOVEM.L` commits all four registers or none, because the only
+ * moment anyone can take the bus is before the instruction starts. `[030]` §7.7
+ * makes the processor the lowest-priority claimant of a bus that can be taken
+ * "between any two bus cycles", and the plan called the fix a resumable
+ * sequencer -- a rewrite of the whole 8,377-line step.
+ *
+ * It is not one. `cpu/m68030/ap_m68030_bus.h` has the argument: the instruction
+ * does not need to stop inside an access, the rest of the machine needs to run
+ * inside one, so the scheduler is called **from** the CPU rather than the CPU
+ * yielding to it. This is the test that the call actually happens.
+ *
+ * ## Why the master is armed and then left alone
+ *
+ * Both of §2.4.7's lines are raised and the arbiter is **not** ticked, so the
+ * master is *eligible* and has not yet won: `ap_board_processor_may_run` is
+ * still true at this instant. Whether it wins during the instruction is then
+ * decided entirely by who ticks the arbiter and when --
+ *
+ *   - at the instruction boundary, nothing ticks it until the instruction is
+ *     over, so the processor runs the whole `MOVEM` at its ordinary cost and
+ *     the master wins afterwards;
+ *   - inside the cycle, `machine_bus_acquire` ticks it before every external
+ *     cycle, so the master wins partway through the four writes and the
+ *     remaining ones stall.
+ *
+ * The assertion is on **clocks**, for the reason the test above gives: the
+ * stall is capped, so asserting that the store is incomplete would assert the
+ * cap rather than the mechanism. A `MOVEM.L` of four registers costs tens of
+ * clocks; a stalled one costs thousands. */
+static void test_the_bus_is_arbitrated_inside_an_instruction_not_between_them(void) {
+  enum { CHANNEL = 2u, DRQ = 3u, DEST = 0x2000u };
+  const uint32_t dest = AP_BOARD_RAM_BASE + DEST;
+  /* Four registers loaded, an address register pointed at RAM, then the store
+   * whose four write cycles are the gap a master can appear in. */
+  const uint16_t program[] = {
+      0x7011u, 0x7222u, 0x7433u, 0x7644u,
+      0x207Cu, (uint16_t)(dest >> 16), (uint16_t)dest,
+      0x48D0u, 0x000Fu,
+      0x4E72u, 0x2700u,
+  };
+  enum { SETUP_INSTRUCTIONS = 5u };
+
+  uint64_t cost[2];
+  for (unsigned inside = 0; inside < 2u; inside++) {
+    static ap_machine_t machine;
+    static ap_board_t board;
+    build_board_machine(&machine, &board, ram, program,
+                        sizeof program / sizeof program[0]);
+    machine.cycle_bus = (inside != 0u);
+
+    ap_board_attach_master(&board, 0u, CHANNEL, DRQ);
+    ap_i8237_write(&board.dma.controller[0], AP_I8237_REG_MODE,
+                   (uint8_t)((AP_I8237_MODE_CASCADE << 6) | CHANNEL));
+    ap_i8237_write(&board.dma.controller[0], AP_I8237_REG_MASK_SINGLE,
+                   (uint8_t)CHANNEL);
+
+    /* Up to the `MOVEM`, with the bus free, so the setup costs the same on
+     * both paths and only the instruction under test differs. */
+    (void)ap_machine_run(&machine, SETUP_INSTRUCTIONS);
+
+    /* Eligible, and not yet holding: the arbiter has not been ticked since the
+     * lines went up, so this instant is identical on both paths. */
+    ap_master_set_request(&board.master, true);
+    ap_master_set_master_l(&board.master, true);
+    TEST_ASSERT_TRUE(ap_board_processor_may_run(&board));
+
+    const uint64_t before = machine.cpu.clocks;
+    (void)ap_machine_run(&machine, 1u);
+    cost[inside] = machine.cpu.clocks - before;
+  }
+
+  /* Arbitrating between instructions cannot see the master at all: the whole
+   * store runs at its ordinary cost. */
+  TEST_ASSERT_TRUE_MESSAGE(
+      cost[0] < AP_MACHINE_STALL_LIMIT,
+      "with arbitration at the instruction boundary the store cannot stall");
+  /* Arbitrating inside the cycle does: the master wins between two of the
+   * store's writes and the processor waits, which is the behaviour the
+   * hardware has and this core did not. */
+  TEST_ASSERT_TRUE_MESSAGE(
+      cost[1] >= AP_MACHINE_STALL_LIMIT,
+      "a master winning mid-instruction must stall the instruction it is in");
+}
+
 /* MOVE.B #$11,($00010401).L -- serial 1, channel A
  * MOVE.B #$22,($00010801).L -- the interval timer's control register
  * MOVE.B #$33,($00017000).L -- the address translation map
@@ -3463,6 +3550,7 @@ int main(void) {
   RUN_TEST(test_the_counters_are_reported_beside_the_hash_not_inside_it);
   RUN_TEST(test_the_state_report_carries_the_clock_and_the_pc);
   RUN_TEST(test_a_bus_master_costs_the_processor_a_stall);
+  RUN_TEST(test_the_bus_is_arbitrated_inside_an_instruction_not_between_them);
   RUN_TEST(test_a_machine_derives_its_cpu_features_from_its_model);
   RUN_TEST(test_a_cpu_space_read_reaches_the_coprocessor);
   RUN_TEST(test_the_same_address_as_data_is_not_the_coprocessor);
