@@ -4644,6 +4644,19 @@ substance. They are the only items here with no route that is simply work.
       work. *Verification: the enumeration is reproducible; `check_docs` exit 0.
       Detail in `PROJECT_STATUS.md`.*
 
+- [x] **And the class is checked now.** `check_provisional_census` pins the
+      census line's four numbers -- `PROVISIONAL` mentions in `src/`, the files
+      carrying them, and each table's rows -- so a figure cannot land without the
+      commit that adds it being refused until the register moves too. Not a
+      bijection: it cannot tell whether a marker has the *right* row, which needs
+      a tag at each of 124 sites and stays the user's call. Worth having anyway,
+      because the failure that has twice occurred is a figure with **no** row,
+      and that moves the count on the first commit.
+      *Verification: proved to fail both ways before it was kept -- an added
+      `PROVISIONAL` gives 125 against 124, a deleted row 32 against 33; a check
+      seen only to pass is not a check. `ctest` 153/153. Detail in
+      `PROJECT_STATUS.md`.*
+
 - [x] **A finished console script can end its run.**
       `--boot-stop-on-script-end`. The disk image is written once, at exit, so
       a run that has finished its work cannot be killed without losing the

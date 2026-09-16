@@ -687,6 +687,97 @@ def check_walk_page_counts(problems: list[str]) -> int:
     return checked
 
 
+# The census line the PROVISIONAL register carries, and the four numbers in it.
+PROVISIONAL_CENSUS = re.compile(
+    r"\*\*Census, checked by `doc_claims`:\s*(\d+)\s*`PROVISIONAL` mentions\s*"
+    r"across\s*(\d+)\s*source\s*files;\s*(\d+)\s*figure rows and\s*(\d+)\s*"
+    r"reading rows\.\*\*", re.MULTILINE)
+
+# Where the two tables begin, so their rows can be counted apart.
+FIGURE_TABLE_HEADING = "## PROVISIONAL figures"
+READING_TABLE_HEADING = "### The `PROVISIONAL` readings that are not figures"
+AFTER_READING_TABLE = "### Resolved discrepancies"
+
+
+def _provisional_in_source() -> tuple[int, int]:
+    """Count `PROVISIONAL` mentions in the core, and the files carrying them."""
+    mentions = 0
+    files = 0
+    for path in sorted((REPO / "src").rglob("*")):
+        if path.suffix not in (".h", ".c") or not path.is_file():
+            continue
+        hits = path.read_text(encoding="utf-8", errors="replace").count(
+            "PROVISIONAL")
+        if hits:
+            mentions += hits
+            files += 1
+    return mentions, files
+
+
+def _rows_between(text: str, start: str, end: str) -> int:
+    """Data rows of the first markdown table between two headings."""
+    if start not in text:
+        return -1
+    body = text[text.index(start) + len(start):]
+    if end in body:
+        body = body[:body.index(end)]
+    rows = [line for line in body.splitlines() if line.startswith("| ")]
+    # Drop the header and its separator.
+    return max(len(rows) - 2, 0)
+
+
+def check_provisional_census(problems: list[str]) -> int:
+    """A `PROVISIONAL` that lands in the source and in neither register.
+
+    **This is the drift that happened twice.** `CLAUDE.md` requires a deliberate
+    approximation to be marked in code, in `PROJECT_STATUS.md` and as a named
+    plan item. Only the first of those is where the work is: whoever chooses the
+    figure writes the comment, because they are in the file. The other two are a
+    separate act of bookkeeping, and nothing made them happen.
+
+    The 2026-08-22 audit sampled the cross-reference, found it held, and
+    concluded the class was "not mechanically checkable under the current
+    convention". A sample cannot find the entry that is in the source and in
+    neither other place -- such an entry is not in the sample frame. By
+    2026-09-16 sixteen figures had landed as rows nowhere, six named only in
+    their own header.
+
+    What *is* checkable without changing the convention is the **count**. A
+    figure cannot land without moving the mention count, so pinning the count
+    forces the commit that adds a `PROVISIONAL` to also touch the register. It
+    cannot tell whether a marker has the right row -- only keying each one would,
+    which is 124 sites of churn and the user's call -- but it catches the
+    failure that has actually occurred, at the moment it occurs rather than a
+    month later.
+    """
+    if not STATUS.is_file():
+        return 0
+    text = STATUS.read_text()
+    match = PROVISIONAL_CENSUS.search(text)
+    if match is None:
+        problems.append(
+            "PROJECT_STATUS.md: the PROVISIONAL census line is missing or "
+            "reworded -- doc_claims cannot check the register without it")
+        return 0
+
+    claimed = [int(group) for group in match.groups()]
+    mentions, files = _provisional_in_source()
+    figures = _rows_between(text, FIGURE_TABLE_HEADING, READING_TABLE_HEADING)
+    readings = _rows_between(text, READING_TABLE_HEADING, AFTER_READING_TABLE)
+    actual = [mentions, files, figures, readings]
+    names = ("PROVISIONAL mentions in src/", "source files carrying one",
+             "figure rows", "reading rows")
+
+    for name, said, is_ in zip(names, claimed, actual):
+        if said != is_:
+            problems.append(
+                f"PROJECT_STATUS.md: the census says {said} {name}, the tree "
+                f"has {is_} -- a PROVISIONAL was added or removed without its "
+                "register row (CLAUDE.md: marked in code *and* in "
+                "PROJECT_STATUS.md, and a named plan item)")
+    return len(names)
+
+
 def main() -> int:
     if not STATUS.is_file():
         sys.stderr.write("check_doc_counts: no PROJECT_STATUS.md\n")
@@ -733,6 +824,7 @@ def main() -> int:
     checked += check_completeness_claims(problems)
     checked += check_walk_coverage(problems)
     checked += check_walk_page_counts(problems)
+    checked += check_provisional_census(problems)
 
     for problem in sorted(set(problems)):
         print(problem)

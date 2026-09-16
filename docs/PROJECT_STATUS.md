@@ -9312,6 +9312,28 @@ nowhere and no count could ever catch it.
 *Verification: documentary; no code changed. The enumeration is reproducible —
 `grep -rn PROVISIONAL src/ --include=*.h --include=*.c` against the two tables.*
 
+### And the class is checked now, which is what the 2026-08-22 entry wanted
+
+`check_docs.py`'s `check_provisional_census` reads the census line above and
+compares all four of its numbers against the tree: `PROVISIONAL` mentions in
+`src/`, the files carrying them, and the rows of each table. A figure cannot land
+without moving the first number, so the commit that adds one is refused by
+`doc_claims` until it brings the register with it.
+
+**What it is not**: a bijection. It cannot tell whether a given marker has the
+*right* row, or any row — only that the totals still agree. Keying each marker
+would give that, and is still the user's call and still 124 sites of churn. The
+weaker check is worth having because it catches the failure that has actually
+occurred, twice, at the moment it occurs rather than a month later. The earlier
+entry concluded the class was "not mechanically checkable under the current
+convention"; that was true of the cross-reference and false of the count, and
+the count is where the drift shows first.
+
+*Verification: proved to fail in **both** directions before it was kept — an
+extra `PROVISIONAL` added to `ap_time.h` gives "the census says 124 ... the tree
+has 125", and a deleted figure row gives "says 33 figure rows, the tree has 32".
+A check seen only to pass is not a check. `ctest` 153/153 on `linux-debug`.*
+
 ## The one claim nothing checked was the one that drifted
 ## (2026-08-22)
 
@@ -21307,6 +21329,20 @@ up, and the SC-499 row still said "all nine" where there are now thirteen
 `AP_SC499_T_*` constants answering three different questions. The sixteen are
 rows below and the two are corrected; the register is **33 rows** — 18 less
 the retired one, plus sixteen.
+
+**Census, checked by `doc_claims`: 124 `PROVISIONAL` mentions across 51 source
+files; 33 figure rows and 29 reading rows.** This line is the tripwire the
+2026-08-22 audit concluded could not exist, and it is a weaker thing than the
+keying that entry proposed: it cannot tell whether a given marker has the *right*
+row, only that the totals still agree. That is enough for the failure that has
+now happened twice — a figure lands in a header and no row is written — because
+the mention count moves the moment it does, and CI then refuses the commit until
+this line and the tables are brought with it. Deliberately not a bijection: that
+needs a tag in every comment, 124 sites of churn, and it remains the user's call.
+*If you are reading this because `doc_claims` just failed: a `PROVISIONAL` was
+added or removed in `src/`. Add its row — to the figure table if it is a chosen
+quantity, to the reading index if it is a layout, polarity or modelling choice —
+and update the four numbers above.*
 
 *The cause is the one the cross-reference audit named and did not act on*: a
 figure is marked at its own site by whoever writes it, and nothing walks the
