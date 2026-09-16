@@ -4923,11 +4923,23 @@ Only after the reference core is proven, and only under an identity harness.
         `PROJECT_STATUS.md`.*
   - [ ] **The 68040's table search is still free**, which is the same defect on
         the other path: `translate_040` sets `out.descriptor_fetches` and
-        charges no clocks, so a DS5500's MMU misses cost nothing. Its identity
-        did not move with the 68030's for exactly that reason — `0 descriptor
-        fetch(es)` in its report. Same fix, different callback
-        (`table_fetch_040`), and it needs its own measurement rather than being
-        smuggled into the 68030's identity run.
+        charges no clocks, so a DS5500's MMU misses cost nothing.
+        **Built 2026-09-16 and REVERTED unlanded, because no harness exercises
+        it.** The wrappers work — `translate_040` loses its `const`, both
+        callbacks are wrapped as the 68030's are, and `[040]` Table 3-1 prices
+        them: a plain read for a descriptor, a "Locked RMW Access" for a history
+        update, which the update callback already carries a `locked` flag for.
+        But **the DS5500 harness performs zero 68040 searches** — its report
+        reads `0 descriptor fetch(es)`, because it stops at the MD prompt with
+        translation never enabled — so both identities were byte-identical with
+        the change in and out, and nothing tested it.
+        **What it needs is a test, not a boot**, and that is the work: an access
+        context with `mmu_040` wired and a 68040 page table laid down in the
+        test's memory, then the same cold-against-warm comparison
+        `access_suite` uses for the 68030. `machine_suite` has DS5500 machines
+        with `mmu_040` attached to start from. Landing the pricing without it
+        would be shipping an unexercised timing change, which is the one thing
+        an identity harness cannot catch.
   - [ ] **Delete `--legacy-instruction-bus`**, and with it `pending_cycles`,
         `defer_cycle_delivery` and the `clock_events` replay, once nothing needs
         the old schedule. Until then it is a second schedule in the tree and is
