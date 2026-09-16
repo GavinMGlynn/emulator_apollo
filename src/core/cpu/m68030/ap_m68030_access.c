@@ -3,6 +3,10 @@
 
 #include "cpu/m68030/ap_m68030_access.h"
 
+/* For `AP_M68030_FC_SUPERVISOR_DATA`: a table search is a supervisor data
+ * access, whatever the access that provoked it was. */
+#include "cpu/m68030/ap_m68030_regs.h"
+
 #include <stddef.h>
 
 #include "cpu/m68040/ap_m68040_bus.h"
@@ -410,6 +414,92 @@ static fill_040_t allocate_line_040(const ap_m68030_access_ctx_t *access,
  * bus is a separate change with its own timing consequences. What is closed
  * here is the lock: a master cannot take the bus across a search, and a search
  * cannot begin while one holds it. Both were previously untrue. */
+/* ## A descriptor fetch is a bus cycle, and it was costing nothing
+ *
+ * `ap_m68030_walk.h` says it outright -- "each of those is a real bus cycle
+ * through `ap_m68030_bus`" -- and it was not one. The walk reached memory
+ * through `table_fetch`, which goes straight to the board, and **no clocks were
+ * ever charged for a search**: `out.clocks` came from the data cycle alone. So
+ * every ATC miss translated instantaneously, where `[030]` §11.9 makes the
+ * no-cache-case latency "incurred by the longest address translation search
+ * required by the system" -- the whole reason a three-level tree is slower than
+ * an early-terminating one, which the walk counts fetches to express and then
+ * nothing spent.
+ *
+ * §11.7's table is the price: it counts "an RMC cycle to set the U bit ... as
+ * one read and one write", so a fetch is a read cycle and a history-bit update
+ * is a read and a write. Both run here, on the same bus and through the same
+ * hooks as any other cycle -- so a search's clocks reach the board, its devices
+ * advance across it, and the lock `begin_table_search` asserts covers cycles
+ * that now actually exist.
+ *
+ * The termination is STERM and the wait states come from the memory system, as
+ * the data paths do: a descriptor in slow memory costs what that memory costs,
+ * which is the point of running a cycle rather than charging a constant. */
+static uint32_t descriptor_cycle(ap_m68030_access_ctx_t *access,
+                                 uint32_t physical, bool read) {
+  ap_m68030_bus_t *const bus = &access->bus;
+  /* Inside the search's lock -- `begin_table_search` has already closed it. */
+  bus->rmc = true;
+  ap_m68030_bus_begin(bus, physical, AP_M68030_FC_SUPERVISOR_DATA,
+                      AP_M68030_SIZE_LONG, read, true);
+  const unsigned waits =
+      access->wait_states != NULL
+          ? access->wait_states(access->context, physical, read)
+          : 0u;
+  uint32_t clocks = 0;
+  if (access->bus_acquire != NULL) {
+    clocks += access->bus_acquire(access->context, AP_M68030_RMC_LOCKED);
+  }
+  while (ap_m68030_bus_active(bus)) {
+    ap_m68030_bus_terminate(bus, bus->wait_states >= waits
+                                     ? AP_M68030_TERM_STERM
+                                     : AP_M68030_TERM_NONE);
+    (void)ap_m68030_bus_tick(bus);
+    clocks++;
+    if (access->bus_clock != NULL) {
+      access->bus_clock(access->context, AP_M68030_RMC_LOCKED);
+    }
+    if (clocks > 64u) {
+      break; /* as the data paths do: a device that never answers is a bug */
+    }
+  }
+  bus->rmc = access->rmc;
+  return clocks;
+}
+
+/* The walk's two callbacks, wrapped so each reaches the bus before it reaches
+ * memory. The wrapper owns the clock total because the walk has nowhere to put
+ * one -- it reports `descriptor_fetches` and leaves the pricing to whoever
+ * knows what a cycle costs, which is this file. */
+typedef struct {
+  ap_m68030_access_ctx_t *access;
+  uint32_t clocks;
+} table_search_t;
+
+static bool search_fetch(void *context, uint32_t physical, bool long_format,
+                         ap_m68030_descriptor_t *out) {
+  table_search_t *search = (table_search_t *)context;
+  /* A long-format descriptor is two long words and two cycles; §9's figures
+   * make it 64 bits and the bus moves 32 at a time. */
+  search->clocks += descriptor_cycle(search->access, physical, true);
+  if (long_format) {
+    search->clocks += descriptor_cycle(search->access, physical + 4u, true);
+  }
+  return search->access->table_fetch(search->access->context, physical,
+                                     long_format, out);
+}
+
+static bool search_update(void *context, uint32_t physical, bool set_used,
+                          bool set_modified) {
+  table_search_t *search = (table_search_t *)context;
+  /* §11.7: "an RMC cycle to set the U bit ... as one read and one write". */
+  search->clocks += descriptor_cycle(search->access, physical, true);
+  search->clocks += descriptor_cycle(search->access, physical, false);
+  return search->access->table_update(search->access->context, physical,
+                                      set_used, set_modified);
+}
+
 static void begin_table_search(ap_m68030_access_ctx_t *access) {
   if (access->bus_acquire == NULL) {
     return;
@@ -681,6 +771,9 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
 
   uint32_t physical = logical;
   bool cache_inhibit = false;
+  /* A table search's bus time, added to the access's total once the data cycle
+   * has set it. Zero when the translation was already resident. */
+  uint32_t search_clocks = 0u;
 
   /* Transparent translation is checked before the tables: a matching TTx
    * register translates without them and without protection checking. */
@@ -733,11 +826,18 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
           .read_modify_write = access->rmc,
           .supervisor = (function_code & 4u) != 0u};
       begin_table_search(access);
+      table_search_t table_bus = {.access = access, .clocks = 0u};
       const ap_m68030_walk_result_t walk =
           ap_m68030_walk(access->tc, access->root, logical, &search_access,
-                         access->table_fetch, access->table_update,
-                         access->context);
+                         search_fetch, search_update, &table_bus);
       end_table_search(access);
+      /* **The search's own bus time**, which nothing charged until 2026-09-16.
+       * Carried in a local rather than added to `out.clocks` here, because the
+       * read path assigns that field from the data cycle further down and an
+       * addition before it is simply overwritten -- which is how the first
+       * version of this passed its own phase tests and failed the one that
+       * asked whether a cold access costs more than a warm one. */
+      search_clocks = table_bus.clocks;
       out.descriptor_fetches = walk.descriptor_fetches;
       (void)ap_m68030_walk_fill_atc(access->atc, &walk, &search_access,
                                     function_code, logical,
@@ -843,7 +943,9 @@ ap_m68030_access_read_sized(ap_m68030_access_ctx_t *access, uint32_t logical,
       ap_m68030_cache_read(access->cache, &access->bus, &request);
 
   out.value = fetched.value;
-  out.clocks = fetched.clocks;
+  /* §11.9's latency is the access's, so the search that made it possible is
+   * part of what the access cost. */
+  out.clocks = fetched.clocks + search_clocks;
   out.ok = !fetched.bus_error;
   out.fault = fetched.bus_error;
   return out;
@@ -871,6 +973,9 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
 
   uint32_t physical = logical;
   bool cache_inhibit = false;
+  /* A table search's bus time, added to the access's total once the data cycle
+   * has set it. Zero when the translation was already resident. */
+  uint32_t search_clocks = 0u;
 
   const ap_m68030_access_t tt_access = {.address = logical,
                                         .function_code = function_code,
@@ -930,11 +1035,18 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
           .read_modify_write = access->rmc,
           .supervisor = (function_code & 4u) != 0u};
       begin_table_search(access);
+      table_search_t table_bus = {.access = access, .clocks = 0u};
       const ap_m68030_walk_result_t walk =
           ap_m68030_walk(access->tc, access->root, logical, &search_access,
-                         access->table_fetch, access->table_update,
-                         access->context);
+                         search_fetch, search_update, &table_bus);
       end_table_search(access);
+      /* **The search's own bus time**, which nothing charged until 2026-09-16.
+       * Carried in a local rather than added to `out.clocks` here, because the
+       * read path assigns that field from the data cycle further down and an
+       * addition before it is simply overwritten -- which is how the first
+       * version of this passed its own phase tests and failed the one that
+       * asked whether a cold access costs more than a warm one. */
+      search_clocks = table_bus.clocks;
       out.descriptor_fetches = walk.descriptor_fetches;
       (void)ap_m68030_walk_fill_atc(access->atc, &walk, &search_access,
                                     function_code, logical,
@@ -1012,6 +1124,11 @@ ap_m68030_access_result_t ap_m68030_access_write(ap_m68030_access_ctx_t *access,
    * always past the point where requests stop being acted on. */
   const ap_m68030_rmc_t write_phase =
       write_bus->rmc ? AP_M68030_RMC_LOCKED : AP_M68030_RMC_NONE;
+  /* And the search that made this write possible, if one ran. The write path
+   * accumulates rather than assigns, so this can simply be added -- unlike the
+   * read path, where the data cycle's assignment overwrites anything added
+   * before it. */
+  out.clocks += search_clocks;
   if (access->bus_acquire != NULL) {
     out.clocks += access->bus_acquire(access->context, write_phase);
   }

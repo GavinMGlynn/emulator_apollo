@@ -13,6 +13,16 @@
  * is the quantity a timing probe measures, and the reason a three-level tree
  * costs more than an early-terminating one.
  *
+ * **That sentence was a description of the intent and not of the code until
+ * 2026-09-16.** The fetches went through this module's callbacks straight to
+ * memory, ran no cycle, and **cost no clocks at all** -- so the quantity was
+ * counted and never spent, and every miss translated instantaneously. The
+ * callbacks are wrapped in `ap_m68030_access.c` now (`search_fetch`,
+ * `search_update`) so each does run a cycle and the search is charged what it
+ * takes. The walk still reports the count and still prices nothing itself,
+ * which is the right division: it knows how many descriptors a tree needs and
+ * not what a cycle costs.
+ *
  * ## Descriptors arrive decoded, and that is deliberate
  *
  * The walk asks its caller for a descriptor rather than reading raw long words,

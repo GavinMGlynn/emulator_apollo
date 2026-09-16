@@ -287,18 +287,17 @@ static void test_a_table_search_locks_the_bus_for_its_whole_walk(void) {
   TEST_ASSERT_TRUE_MESSAGE(r.descriptor_fetches > 0,
                            "this test needs an access that actually searches");
 
-  TEST_ASSERT_EQUAL_UINT_MESSAGE(
-      4u, seen_count,
-      "a searching read brackets its walk and then runs its data cycle");
+  /* More than the bracket's own two calls, because each descriptor fetch is a
+   * bus cycle now and reaches the hook like any other. */
+  TEST_ASSERT_TRUE_MESSAGE(seen_count > 4u,
+                           "a search runs a cycle for every descriptor it reads");
   TEST_ASSERT_EQUAL_UINT_MESSAGE(AP_M68030_RMC_FIRST_READ, seen_phase[0],
                                  "the search opens in the first-read phase");
   TEST_ASSERT_EQUAL_UINT_MESSAGE(AP_M68030_RMC_LOCKED, seen_phase[1],
                                  "and then locks for the whole walk");
-  TEST_ASSERT_EQUAL_UINT_MESSAGE(AP_M68030_RMC_NONE, seen_phase[2],
-                                 "and releases when the walk is done");
   TEST_ASSERT_EQUAL_UINT_MESSAGE(
-      AP_M68030_RMC_NONE, seen_phase[3],
-      "the data cycle that follows is an ordinary one");
+      AP_M68030_RMC_NONE, seen_phase[seen_count - 1u],
+      "the data cycle that follows the search is an ordinary one");
 }
 
 /* And a search that runs *inside* an indivisible operation must not release the
@@ -314,16 +313,64 @@ static void test_a_search_inside_a_lock_restores_the_lock_it_interrupted(void) {
   ctx.rmc = true;
   (void)ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
 
-  TEST_ASSERT_EQUAL_UINT(4u, seen_count);
+  TEST_ASSERT_TRUE(seen_count > 4u);
   TEST_ASSERT_EQUAL_UINT(AP_M68030_RMC_FIRST_READ, seen_phase[0]);
   TEST_ASSERT_EQUAL_UINT(AP_M68030_RMC_LOCKED, seen_phase[1]);
-  TEST_ASSERT_EQUAL_UINT_MESSAGE(
-      AP_M68030_RMC_LOCKED, seen_phase[2],
-      "a search inside an operation restores that operation's lock");
   /* The data cycle is the operation's opening read, which is still the first
    * read cycle of the operation itself -- the search's lock was a different,
-   * nested one and does not consume it. */
-  TEST_ASSERT_EQUAL_UINT(AP_M68030_RMC_FIRST_READ, seen_phase[3]);
+   * nested one and does not consume it. It is also the proof that
+   * `end_table_search` restored the enclosing operation's lock rather than
+   * dropping it: every call between the bracket and this one is `LOCKED`. */
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(
+      AP_M68030_RMC_FIRST_READ, seen_phase[seen_count - 1u],
+      "the operation's own opening read follows the search it provoked");
+  for (unsigned i = 1u; i + 1u < seen_count; i++) {
+    TEST_ASSERT_EQUAL_UINT_MESSAGE(
+        AP_M68030_RMC_LOCKED, seen_phase[i],
+        "a search inside an operation stays locked throughout");
+  }
+}
+
+/* ## A table search costs time, which it did not until 2026-09-16
+ *
+ * `ap_m68030_walk.h` said each descriptor fetch "is a real bus cycle through
+ * `ap_m68030_bus`" and it was not one: the walk reached memory through a
+ * callback that goes straight to the board, and **no clocks were charged for a
+ * search at all** -- `out.clocks` came from the data cycle alone. Every ATC miss
+ * translated instantaneously.
+ *
+ * `[030]` §11.9 is explicit that it should not: the no-cache-case latency is
+ * "incurred by the longest address translation search required by the system",
+ * which is the whole reason a three-level tree costs more than one that
+ * terminates early. The walk counts its fetches to express exactly that, and
+ * nothing spent them.
+ *
+ * The assertion is a comparison rather than a figure, because the figure is the
+ * memory system's: the same address read twice, once with the translation cold
+ * and once with it resident, differing only by the search. */
+static void test_a_table_search_costs_the_clocks_its_fetches_take(void) {
+  machine_t m = make_machine();
+  ap_m68030_access_ctx_t ctx = context_of(&m);
+
+  const ap_m68030_access_result_t cold =
+      ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(cold.ok);
+  TEST_ASSERT_TRUE_MESSAGE(cold.descriptor_fetches > 0,
+                           "this test needs an access that actually searches");
+
+  /* The cache is cleared so the second read still runs its data cycle; the ATC
+   * is left alone, so it does *not* search. The difference between the two is
+   * the search and nothing else. */
+  ap_m68030_cache_clear(&m.cache);
+  const ap_m68030_access_result_t warm =
+      ap_m68030_access_read(&ctx, ADDRESS, FC_SUPERVISOR_DATA);
+  TEST_ASSERT_TRUE(warm.ok);
+  TEST_ASSERT_EQUAL_UINT_MESSAGE(0u, warm.descriptor_fetches,
+                                 "the translation must be resident by now");
+
+  TEST_ASSERT_TRUE_MESSAGE(
+      cold.clocks > warm.clocks,
+      "a translation table search must cost the bus time its fetches take");
 }
 
 /* The first access misses everything: the MMU is consulted, a table search
@@ -812,6 +859,7 @@ int main(void) {
   RUN_TEST(test_a_narrow_read_positions_its_byte_by_the_bus_address);
   RUN_TEST(test_the_opening_read_of_a_lock_is_first_read_and_the_rest_locked);
   RUN_TEST(test_a_table_search_locks_the_bus_for_its_whole_walk);
+  RUN_TEST(test_a_table_search_costs_the_clocks_its_fetches_take);
   RUN_TEST(test_a_search_inside_a_lock_restores_the_lock_it_interrupted);
   return UNITY_END();
 }

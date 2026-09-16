@@ -4907,11 +4907,27 @@ Only after the reference core is proven, and only under an identity harness.
       References: DN3500 **`43EE6D5A22C006C0`**, DS5500 **`08591C51E9D4372F`**.
       *Verification: `ctest` 153/153 on both presets; four identity runs.
       Detail in `PROJECT_STATUS.md`.*
-  - [ ] **The table search's descriptor fetches still run no bus cycles**, so
-        nothing arbitrates between them and the lock above is all that is
-        modelled. Routing them through the bus is a change with its own timing
-        consequences — every search would cost real cycles — and is named here
-        rather than folded into the item it was found in.
+  - [x] **The table search's descriptor fetches are bus cycles — done
+        2026-09-16, and they were costing nothing at all.** `ap_m68030_walk.h`
+        said each fetch "is a real bus cycle" and none was: the walk went
+        straight to memory and **no clocks were ever charged for a search**, so
+        every ATC miss translated instantaneously where §11.9 makes the
+        no-cache-case latency "incurred by the longest address translation
+        search". `search_fetch` and `search_update` now wrap the walk's
+        callbacks so each reaches the bus first, priced by §11.7 — a fetch is a
+        read, a history update "one read and one write", a long-format
+        descriptor two cycles. Reference moves to **`B84BEA19E9D3EB16`**,
+        +172,494 clocks on 42,582 fetches and 14,642 updates, about two clocks a
+        cycle. *Verification: `access_suite` 22 -> 23, the new test failing first
+        on an overwritten accumulator; `ctest` 153/153. Detail in
+        `PROJECT_STATUS.md`.*
+  - [ ] **The 68040's table search is still free**, which is the same defect on
+        the other path: `translate_040` sets `out.descriptor_fetches` and
+        charges no clocks, so a DS5500's MMU misses cost nothing. Its identity
+        did not move with the 68030's for exactly that reason — `0 descriptor
+        fetch(es)` in its report. Same fix, different callback
+        (`table_fetch_040`), and it needs its own measurement rather than being
+        smuggled into the 68030's identity run.
   - [ ] **Delete `--legacy-instruction-bus`**, and with it `pending_cycles`,
         `defer_cycle_delivery` and the `clock_events` replay, once nothing needs
         the old schedule. Until then it is a second schedule in the tree and is
