@@ -6191,9 +6191,16 @@ different processors.
 **And the DN3500 moves once more the same day, to `B84BEA19E9D3EB16` at
 1,833,793,487 clocks**, when the translation table search stopped being free:
 its descriptor fetches are bus cycles now, +172,494 clocks over 42,582 fetches
-and 14,642 history updates. **The DS5500 stays at `08591C51E9D4372F`**, because
-a 68040 translates through a different path whose search is still unpriced --
-a named plan item, not an oversight. *This is the current pair.*
+and 14,642 history updates. The DS5500 stayed at `08591C51E9D4372F`, because a
+68040 translates through a different path, which was priced separately.
+
+**Both move a last time, for coverage, when the legacy schedule was deleted**:
+`pending_cycles` and `defer_cycle_delivery` were hashed and went with it, so the
+digest moves and nothing else does. **DN3500 `DA70126426C9A937`** at the same
+1,833,793,487 clocks, **DS5500 `D8B6F9244ACEF028`** at the same 27,925,468 --
+and every other line of both reports is byte-identical to the run before, which
+is what makes this a re-hashing rather than a change. *This is the current
+pair.*
 
 *Measured rather than argued.* The same day's `ap_boardreg` change — the DS5500
 cache status register's bit 4 — is gated on `model == AP_MODEL_DN5500`, so it
@@ -21440,6 +21447,52 @@ so the two differ by the search and nothing else. It **failed first** — the re
 path assigns `out.clocks` from the data cycle, which silently overwrote the
 first version's addition, and the phase tests passed throughout because phases
 are not clocks. `ctest` 153/153 on both presets.*
+
+## The legacy schedule is deleted, and the plan is finished (2026-09-16)
+
+`--legacy-instruction-bus` is gone, and with it everything that existed only to
+reconcile two schedules: `cycle_bus`, `pending_cycles`, `defer_cycle_delivery`,
+`pending_rmc`, the pre-instruction stall, the instruction-wide `RMC` assertion
+and the `clock_events` replay. The core has **one** schedule again, and it is
+the one the hardware has.
+
+**What each removal was for, so the deletion is not mistaken for tidying.** The
+stall asked once, before an instruction, whether a master held the bus — the
+instruction-boundary approximation, now asked before every external cycle where
+`[030]` §7.7 has the hardware ask it. The `RMC` assertion made the lock exactly
+one instruction wide where §7.7.4 allows arbitration during the first read
+cycle; the hooks drive the pin from inside each cycle, so the lock is as wide as
+the *operation*. And the replay reconstructed an instruction's clocks afterwards
+from `clock_events` to hand them to the bus one at a time — which is what the
+hooks now do as the clocks are spent, so there is nothing left to reconstruct.
+
+**`ap_machine_tick` is `ap_machine_run(.., 1)`.** The two loops are not merely
+equal, they are the same code, and `--cycle-stepped` gets a machine that is
+cycle-stepped by default. The equivalence test is **kept** rather than deleted
+with the schedule: it is what caught the double delivery when the cycle path
+first became the default, and it is what would catch the tick loop growing a
+second identity again.
+
+**Both references move, and for coverage alone.** `pending_cycles` and
+`defer_cycle_delivery` were hashed, so removing them moves the digest and
+nothing else. DN3500 **`DA70126426C9A937`** at the same 1,833,793,487 clocks;
+DS5500 **`D8B6F9244ACEF028`** at the same 27,925,468. *Every other line of both
+reports is byte-identical to the run before* — checked by diffing the whole
+report with the hash line excluded, which is the evidence that distinguishes a
+re-hashing from a change. The probe goldens move the same way, and there the
+evidence is in the file: `ran`, `status`, `d0`, `pc`, `clocks` and `berr` are
+unchanged for all ten probes and only the hash column differs.
+
+**One thing the deletion left inert and it is named rather than hidden.**
+`devices_advance_mid_access` selected a block that the cycle schedule had
+already made dead, and that block is gone — the access's instant now reaches
+every device unconditionally, which is strictly stronger than what the flag
+asked for. The field survives because it is hashed and removing hashed state
+moves every golden for no behaviour; that it now selects nothing is a plan item.
+
+*Verification: `ctest` 153/153 on `linux-debug` and `linux-release`; both
+identities re-run on the release build and diffed line by line against their
+predecessors; the probe goldens re-blessed with the same diff as evidence.*
 
 ## The access's instant reaches the board, and the cursor hazard is closed
 ## (2026-09-16)

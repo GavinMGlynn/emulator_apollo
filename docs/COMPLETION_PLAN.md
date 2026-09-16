@@ -4936,11 +4936,28 @@ Only after the reference core is proven, and only under an identity harness.
         `ctest` 153/153; both identities unchanged, which is predicted rather
         than null. Detail in `PROJECT_STATUS.md`.*
 
-  - [ ] **Delete `--legacy-instruction-bus`**, and with it `pending_cycles`,
-        `defer_cycle_delivery` and the `clock_events` replay, once nothing needs
-        the old schedule. Until then it is a second schedule in the tree and is
-        **not hashed**; if it outlives the transition it must be, on the
-        reasoning that put `devices_advance_mid_access` in the digest.
+  - [x] **`--legacy-instruction-bus` deleted, 2026-09-16**, and with it
+        `cycle_bus`, `pending_cycles`, `defer_cycle_delivery`, `pending_rmc`,
+        the pre-instruction stall, the instruction-wide `RMC` assertion and the
+        `clock_events` replay. One schedule again, and `ap_machine_tick` is
+        `ap_machine_run(.., 1)` -- the two loops the same code rather than two
+        that agree. Both references move **for coverage only**: the two removed
+        fields were hashed, so DN3500 becomes `DA70126426C9A937` and DS5500
+        `D8B6F9244ACEF028` at *identical* clock counts, every other line of both
+        reports byte-identical to the run before. *Verification: `ctest` 153/153
+        on both presets; identities diffed line by line against their
+        predecessors; probe goldens re-blessed with `ran`, `status`, `d0`, `pc`,
+        `clocks` and `berr` unchanged for all ten. Detail in
+        `PROJECT_STATUS.md`.*
+  - [ ] **`devices_advance_mid_access` now selects nothing.** The block it
+        gated advanced one device to the instant of an access; every access does
+        that unconditionally since the instant reaches `ap_board_read`/`_write`,
+        which is strictly stronger, so the block is gone. The field survives
+        because it is **hashed**, and removing hashed state moves every golden
+        for no behaviour -- so the choice is between carrying an inert flag and
+        spending a re-bless on nothing. Named here rather than left as a flag
+        that quietly does nothing, which is the defect this project keeps
+        finding in other people's code and its own.
 
 - [x] **Where the time goes, measured** — and the first thing the measurement
       found was that the profile was measuring the instrument. A stepped boot

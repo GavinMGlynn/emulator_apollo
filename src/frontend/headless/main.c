@@ -400,9 +400,6 @@ static void print_usage(const char *program_name) {
   fprintf(stdout,
           "  --screenshot FILE     scan the fitted screen out to a PNG\n"
           "  --disk FILE           fit a Winchester (.awd) to the boot\n"
-          "  --legacy-instruction-bus\n"
-          "                       arbitrate the bus between instructions, as\n"
-          "                       this core did before 2026-09-16\n"
           "  --disk-writeback FILE write the machine's disk out when the run\n"
           "                        ends, so what the guest *wrote* can be read.\n"
           "                        A separate path, never --disk's own: the\n"
@@ -2818,12 +2815,7 @@ static ap_ring_medium_t g_ring_segment;
  * on the same 350 M boot, with identical clocks -- and which matches the
  * hardware is a question for the oracle rather than a preference. */
 static bool g_devices_mid_access = false;
-/* Arbitrate the bus inside each processor cycle rather than between
- * instructions -- `cpu/m68030/ap_m68030_bus.h` carries the design and why it is
- * not the resumable sequencer the plan proposed. A switch while the two paths
- * are compared against one state hash; it goes when the goldens are re-blessed
- * and the A/B is on the record. */
-static bool g_legacy_instruction_bus = false;
+
 
 /* Drive the boot one *machine cycle* at a time through `ap_machine_tick`
  * instead of one instruction at a time. The two must produce the same state:
@@ -4791,7 +4783,6 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
   ap_machine_init_model(&machine, ram, ram_bytes, model);
   ap_machine_set_board(&machine, board);
   machine.devices_advance_mid_access = g_devices_mid_access;
-  machine.cycle_bus = !g_legacy_instruction_bus;
   machine.watch_write_address = watch_write;
   machine.mmu_fault_stop_address = stop_mmu_fault_at;
   machine.exception_stop_vector = stop_vector;
@@ -5382,17 +5373,16 @@ static int boot_from_prom(const char *path, uint64_t limit, bool trace,
       /* So a watch can name the instruction rather than a byte inside it. */
       machine.executing_address = step_pc;
       ap_machine_run_t one;
-      if (g_cycle_stepped) {
-        /* One instruction's worth of cycles, handed out one at a time. The
-         * first tick starts the instruction and delivers its first clock; the
-         * rest deliver the remainder. */
-        one = ap_machine_tick(&machine);
-        while (machine.pending_cycles > 0u) {
-          (void)ap_machine_tick(&machine);
-        }
-      } else {
-        one = ap_machine_run(&machine, 1u);
-      }
+      /* **`--cycle-stepped` is the same loop now, and says so.** It used to
+       * hand an instruction's clocks to the bus one tick at a time, because the
+       * run loop delivered them in a batch at the end and the two schedules
+       * had to be reconciled. Since the bus became arbitrated inside the cycle
+       * the clocks reach the board when the processor spends them, so
+       * `ap_machine_tick` *is* `ap_machine_run(.., 1)` and draining it would
+       * deliver every clock twice. The flag is kept because a caller asking for
+       * cycle stepping should get a machine that is cycle stepped, which this
+       * now is by default. */
+      one = ap_machine_run(&machine, 1u);
       /* The instruction word is read back from where it executed, since the
        * machine's loop reports why a run ended and not which word did it.
        *
@@ -7224,7 +7214,6 @@ static int boot_from_tape(const char *path, uint64_t limit) {
   ap_machine_init(&machine, ram, ram_bytes);
   ap_machine_set_board(&machine, board);
   machine.devices_advance_mid_access = g_devices_mid_access;
-  machine.cycle_bus = !g_legacy_instruction_bus;
   for (uint32_t i = 0; i < image.length; i++) {
     if (!ap_machine_write(&machine, image.load_address + i, 1u,
                           image.data[i])) {
@@ -7560,11 +7549,6 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--mid-access-devices") == 0) {
       g_devices_mid_access = true;
       i++;
-      continue;
-    }
-    if (strcmp(argv[i], "--legacy-instruction-bus") == 0) {
-      g_legacy_instruction_bus = true;
-      i += 1;
       continue;
     }
     if (strcmp(argv[i], "--ram") == 0 && i + 1 < argc) {

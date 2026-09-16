@@ -238,23 +238,15 @@ static unsigned machine_wait_states(void *context, uint32_t physical,
    * all: devices advance to an absolute instant carrying their own remainders,
    * so reaching the end of the instruction in two steps is the same as reaching
    * it in one. */
-  /* **Subsumed by `cycle_bus`, and it would double-count against it.** This
-   * computes the instant from `now` *plus* the instruction's elapsed clocks,
-   * which is right only while `now` stands still inside an instruction. With
-   * the bus arbitrated inside the cycle, `machine_cycle_clock` has already
-   * carried `now` forward clock by clock and advanced every device to it -- so
-   * adding the offset again would run this device ahead of the machine, and the
-   * two flags together would drift by the length of every instruction.
+  /* **`devices_advance_mid_access` is subsumed and its block is gone.** It
+   * advanced one device to the instant of the access, which is now what every
+   * access does unconditionally: `ap_board_read`/`ap_board_write` take the
+   * instant and carry the addressed device to it. The flag's own schedule was
+   * strictly weaker -- one device, one instant, and only when asked.
    *
-   * The cycle path is also strictly the stronger schedule: it advances *all*
-   * devices at *every* clock, where this advances one device at one instant. */
-  if (machine->devices_advance_mid_access && !machine->cycle_bus) {
-    ap_board_advance_one(machine->board, physical,
-                     machine->now +
-                       ap_clock_duration(&machine->cpu_clock,
-                                           machine->cpu.clocks -
-                                               machine->instruction_start_clocks));
-  }
+   * The field survives because it is hashed, and removing hashed state moves
+   * every golden for no behaviour; that it now selects nothing is a named plan
+   * item rather than a silence. */
 
   const ap_time_t needed = ap_board_access_time(machine->board, physical, read);
   if (needed == 0u) {
@@ -429,7 +421,7 @@ static void machine_cycle_catch_up(ap_machine_t *machine) {
 
 static unsigned machine_bus_acquire(void *context, ap_m68030_rmc_t rmc) {
   ap_machine_t *machine = (ap_machine_t *)context;
-  if (machine->board == NULL || !machine->cycle_bus) {
+  if (machine->board == NULL) {
     return 0u;
   }
   machine_drive_rmc(machine, rmc);
@@ -451,7 +443,7 @@ static unsigned machine_bus_acquire(void *context, ap_m68030_rmc_t rmc) {
 
 static void machine_bus_clock(void *context, ap_m68030_rmc_t rmc) {
   ap_machine_t *machine = (ap_machine_t *)context;
-  if (machine->board == NULL || !machine->cycle_bus) {
+  if (machine->board == NULL) {
     return;
   }
   machine_drive_rmc(machine, rmc);
@@ -718,15 +710,6 @@ void ap_machine_init_model(ap_machine_t *machine, uint8_t *ram,
    * valid bits rather than data, by design, so without this the leftovers would
    * be whatever the caller happened to have. */
   *machine = (ap_machine_t){0};
-  /* **The bus is arbitrated inside the cycle, and that is now the only
-   * schedule this core has.** `cpu/m68030/ap_m68030_bus.h` carries the design.
-   * Set here rather than left to the zeroing above because it is a claim about
-   * how this machine runs, and a claim that happens to be enumerator zero is
-   * still a claim -- the same reason `at_bus_series` is assigned explicitly.
-   *
-   * `--legacy-instruction-bus` still selects the old schedule so the A/B that
-   * blessed the goldens can be reproduced. It goes when nothing needs it. */
-  machine->cycle_bus = true;
 
   /* **After** the blanking above, not before. Setting it first and then
    * zeroing the struct left `model` null while everything downstream read it,
@@ -1260,28 +1243,13 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
        * bytes a second take, and the SR10.4 firmware -- which writes DMAGO
        * forty-six instructions before the 8237 address it belongs to -- lost
        * the race every time. */
-      /* **Skipped entirely when the bus is arbitrated inside the cycle.**
-       * This stall is the instruction-boundary approximation: it asks once,
-       * before the instruction, whether a master holds the bus. With
-       * `cycle_bus` set the same question is asked before every external cycle
-       * by `machine_bus_acquire`, which is where the hardware asks it, so
-       * asking here as well would stall twice for one contention. */
-      unsigned stalled = 0;
-      /* Kept beside `machine->now` rather than in it: the step below converts
-       * `cpu.clocks - before` once and lands on exactly this instant plus the
-       * instruction's own, so adding here as well would count every stalled
-       * clock twice. `ap_clock_duration` is `cycles * period`, so a clock at a
-       * time and all of them at once are the same number. */
-      ap_time_t stall_now = machine->now;
-      while (!machine->cycle_bus &&
-             !ap_board_processor_may_run(machine->board) &&
-             stalled < AP_MACHINE_STALL_LIMIT) {
-        ap_board_bus_tick(machine->board);
-        machine->cpu.clocks++;
-        stalled++;
-        stall_now += ap_clock_duration(&machine->cpu_clock, 1u);
-        ap_board_advance(machine->board, stall_now);
-      }
+      /* **The stall that used to be here is gone**, and the paragraphs above
+       * are the record of what it cost to get right. It asked once, before the
+       * instruction, whether a master held the bus -- which is the
+       * instruction-boundary approximation this core no longer makes.
+       * `machine_bus_acquire` asks the same question before every external
+       * cycle, which is where `[030]` §7.7 has the hardware ask it, and it
+       * advances the devices across the wait for the reason C268 records. */
     }
     /* The vector counts before the step, so the one it takes can be told from
      * the ones it already had. Sampled rather than diffed at the end because a
@@ -1292,7 +1260,6 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
         watched != 0u ? machine->cpu.exceptions_taken[watched & 0xFFu] : 0u;
     const uint32_t before_pc = machine->cpu.regs.pc;
     const unsigned before_resets = machine->cpu.external_resets;
-    const unsigned before_rmc = machine->cpu.rmc_operations;
 
     const ap_m68030_step_result_t result = ap_m68030_step(&machine->cpu);
     /* `RESET` drives the board's reset line -- see `drive_external_reset`. Both
@@ -1315,7 +1282,7 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
      * `ap_board_bus_ticks` loops the arbiter one clock at a time, batching only
      * where the board can prove the ticks identical, so the resolution was
      * never the problem -- the lag was. */
-    if (machine->board != NULL && !machine->defer_cycle_delivery) {
+    if (machine->board != NULL) {
       /* **`RMC` reaches the arbiter here, and it did not before.** An
        * instruction that ran an indivisible read-modify-write holds the bus for
        * the whole of it: `[030]` §7.7.1 has the arbitration state machine
@@ -1337,49 +1304,25 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
        * arbitration during the first read cycle, which is `AP_M68030_RMC_FIRST_
        * READ` and needs the per-cycle processor to place. Named in
        * `COMPLETION_PLAN.md` rather than approximated. */
-      /* **The instruction-wide `RMC` is the approximation `cycle_bus`
-       * removes.** Asserting it around this walk makes the lock exactly as wide
-       * as the instruction, where §7.7.1 allows arbitration *during* the first
-       * read cycle. With the hooks driving the pin from inside each cycle the
-       * lock is as wide as the operation instead, which is the hardware's, so
-       * this whole branch is skipped. */
-      const bool indivisible =
-          !machine->cycle_bus && machine->cpu.rmc_operations != before_rmc;
-      if (indivisible) {
-        ap_board_set_processor_rmc(machine->board, true);
-      }
-      /* **Walked, not batched.** The step now records when each charge of
-       * clocks happened within the instruction, so the bus is advanced in the
-       * same order the processor spent them rather than in one lump at the end.
+      /* **The instruction's clocks, and the hooks have already spent most of
+       * them.** `machine_bus_clock` ticked the board's bus at each clock an
+       * external cycle spent, as the processor spent it; what is left is the
+       * instruction's *internal* time, which still ticks the bus because a DMA
+       * controller can ask during it. `machine_cycle_catch_up` also moves
+       * `now`, so the conversion at the foot of this loop has nothing to do.
        *
-       * The total is identical by construction -- `ap_m68030_charge` is the
-       * only accumulator, so the entries sum to `clocks` -- and the fallback
-       * covers the one case where they cannot: an instruction that overflowed
-       * the buffer, which `clock_events_dropped` counts and which no real
-       * program should reach. */
-      if (machine->cycle_bus) {
-        /* The hooks ticked the bus for every clock an external cycle spent, as
-         * it was spent. What is left is the instruction's *internal* time --
-         * microcode, and any clock charged outside a bus cycle -- which still
-         * ticks the bus, because a DMA controller can ask during it.
-         *
-         * `machine_cycle_catch_up` also moves `now`, so the conversion at the
-         * foot of this loop has nothing left to do on this path. */
-        machine_cycle_catch_up(machine);
-        /* §7.3.5 ends a read-modify-write by negating `RMC` after the write,
-         * and the operation never outlives its instruction. Released here so a
-         * lock cannot survive into the next one. */
-        machine_drive_rmc(machine, AP_M68030_RMC_NONE);
-      } else if (machine->cpu.clock_events_dropped == 0u) {
-        for (unsigned e = 0; e < machine->cpu.clock_event_count; e++) {
-          ap_board_bus_ticks(machine->board, machine->cpu.clock_events[e]);
-        }
-      } else {
-        ap_board_bus_ticks(machine->board, machine->last_instruction_clocks);
-      }
-      if (indivisible) {
-        ap_board_set_processor_rmc(machine->board, false);
-      }
+       * **What used to be here**, and is gone with the schedule that needed it:
+       * an assertion of `RMC` around a replay of `clock_events`, which made the
+       * lock exactly one instruction wide where §7.7.4 allows arbitration
+       * during the first read cycle. The hooks drive the pin from inside each
+       * cycle now, so the lock is as wide as the *operation*, and the replay
+       * has nothing to replay -- the clocks reached the bus when they were
+       * spent rather than being reconstructed afterwards. */
+      machine_cycle_catch_up(machine);
+      /* §7.3.5 ends a read-modify-write by negating `RMC` after the write, and
+       * the operation never outlives its instruction. Released here so a lock
+       * cannot survive into the next one. */
+      machine_drive_rmc(machine, AP_M68030_RMC_NONE);
     }
     /* Converted once, here. The step reports CPU clocks; the machine keeps
      * time. A `cpu_clock` that was never initialised has a zero rate and
@@ -1396,16 +1339,10 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
      * instant a step lands on is identical either way, which is what makes the
      * two paths comparable at all: `cycle_bus` changes *when* time passes
      * within an instruction, never how much. */
-    if (machine->cycle_bus) {
-      /* Idempotent, and reached here rather than only inside the delivery
-       * block above because that block is skipped for a machine with no board
-       * and for the deferred tick path -- either of which would otherwise
-       * freeze `now` for the whole run. */
-      machine_cycle_catch_up(machine);
-    } else {
-      machine->now += ap_clock_duration(&machine->cpu_clock,
-                                        machine->cpu.clocks - before);
-    }
+    /* Idempotent, and reached here rather than only inside the delivery block
+     * above because that block is skipped for a machine with no board, which
+     * would otherwise freeze `now` for the whole run. */
+    machine_cycle_catch_up(machine);
 
     /* And every device that keeps time advances to that instant. After the
      * step, so a device sees the effect of an instruction that programmed it
@@ -1424,9 +1361,7 @@ ap_machine_run_t ap_machine_run(ap_machine_t *machine, uint64_t limit) {
      * changed **nothing** (`FINDINGS.md` C254). The cause was inside
      * `ap_board_bus_ticks`. Kept because the parallel is worth having and the
      * refactor is free, not because it fixed anything. */
-    if (!machine->defer_cycle_delivery) {
-      machine_advance_devices(machine);
-    }
+    machine_advance_devices(machine);
     out.status = result.status;
     out.instruction = result.instruction;
 
@@ -1598,8 +1533,6 @@ static uint64_t machine_hash_into(ap_hash_t *stp, const ap_machine_t *machine) {
   ap_hash_scope(&st, "machine.schedule");
   ap_hash_u64(&st, machine->last_instruction_clocks);
   ap_hash_u64(&st, machine->instruction_start_clocks);
-  ap_hash_u32(&st, machine->pending_cycles);
-  ap_hash_u8(&st, machine->defer_cycle_delivery ? 1u : 0u);
   ap_hash_u8(&st, machine->devices_advance_mid_access ? 1u : 0u);
 
   /* `bus_errors` is deliberately absent -- see ap_machine.h. It is reported by
@@ -1635,90 +1568,26 @@ ap_time_t ap_machine_now(const ap_machine_t *machine) { return machine->now; }
 
 
 ap_machine_run_t ap_machine_tick(ap_machine_t *machine) {
-  ap_machine_run_t out = {.status = AP_M68030_STEP_EXECUTED};
-  /* ## The cycle-bus schedule has already done this, and doing it again is a
-   * ## double delivery
+  /* ## One instruction, because the cycles already happened at their moments
    *
-   * This path exists to spread an instruction's clocks over the bus one at a
-   * time, because the run loop used to hand them over in a batch at the end. It
-   * is an *approximation of* the cycle schedule, reconstructed after the fact
-   * from `clock_events`.
+   * This used to spread an instruction's clocks over the bus one at a time,
+   * reconstructing them afterwards from `clock_events` because the run loop
+   * handed them over in a batch at the end. It was an *approximation of* the
+   * cycle schedule, and a good one -- agreeing with the run loop took two
+   * defects to establish.
    *
    * With the bus arbitrated inside the cycle there is nothing to reconstruct:
-   * `machine_bus_clock` ticked the board's bus at each clock as the processor
-   * spent it, and `machine_cycle_catch_up` delivered the rest before this
-   * returns. Handing out `pending_cycles` on top of that delivers every clock
-   * **twice** -- which is what `test_the_tick_loop_matches_the_run_loop_on_a_
-   * real_board` caught the moment the schedule was made the default, and which
-   * no identity boot could have seen because the boot does not use this entry
-   * point.
+   * `machine_bus_clock` ticks the board's bus at each clock as the processor
+   * spends it, and `machine_cycle_catch_up` delivers the rest before the run
+   * returns. Handing cycles out on top of that delivered every clock **twice**,
+   * which is what `test_the_tick_loop_matches_the_run_loop_on_a_real_board`
+   * caught the day the schedule became the default.
    *
-   * So on that schedule the two loops are not merely equal, they are the same
-   * code, and the tick is one instruction. The caller loses the ability to
-   * interpose *between* an instruction's cycles from outside -- but the cycles
-   * now happen at their true moments rather than being replayed afterwards,
-   * which is the thing the interposing was approximating. */
-  if (machine->cycle_bus) {
-    return ap_machine_run(machine, 1u);
-  }
-  if (machine->pending_cycles == 0u) {
-    /* Run the instruction but keep its clocks: they are handed out below, one
-     * per tick, so the bus sees them spread across the cycles the processor
-     * actually spent rather than in one batch at the end. */
-    const unsigned before_rmc = machine->cpu.rmc_operations;
-    machine->defer_cycle_delivery = true;
-    out = ap_machine_run(machine, 1u);
-    machine->defer_cycle_delivery = false;
-    /* **The timeline's sum, not the instruction's whole clock count** -- and
-     * the difference is a defect this path carried since it was built.
-     *
-     * `last_instruction_clocks` is `cpu.clocks` across the step, and the
-     * arbitration stall above adds to `cpu.clocks` while calling
-     * `ap_board_bus_tick` for each one, so those clocks have **already reached
-     * the board**. `ap_machine_run` delivers `clock_events` precisely because
-     * they are the clocks the *processor* charged and not the ones the stall
-     * already paid; handing out `last_instruction_clocks` here delivered the
-     * stall's clocks a second time.
-     *
-     * Measured: a cycle-stepped identity boot charged 1,411,551,920 clocks
-     * against the instruction-stepped 1,408,661,906 and diverged at
-     * **instruction 86**, six clocks against seven, on an identical instruction
-     * stream (`FINDINGS.md` C254). The fallback is `ap_machine_run`'s, for the
-     * one case the timeline cannot represent. */
-    unsigned delivered = 0u;
-    if (machine->cpu.clock_events_dropped == 0u) {
-      for (unsigned e = 0; e < machine->cpu.clock_event_count; e++) {
-        delivered += machine->cpu.clock_events[e];
-      }
-    } else {
-      delivered = (unsigned)machine->last_instruction_clocks;
-    }
-    machine->pending_cycles = delivered;
-    /* **And whether the bus is locked for the drain**, which this path did not
-     * carry. `ap_machine_run` holds `RMC` across its own clock walk and the
-     * deferral skipped the assertion along with the walk, so a cycle-stepped
-     * machine granted the bus away inside an indivisible read-modify-write
-     * where an instruction-stepped one refused. `[030]` §7.7.1 and §11.9. */
-    machine->pending_rmc = machine->cpu.rmc_operations != before_rmc;
-    if (machine->board != NULL && machine->pending_rmc) {
-      ap_board_set_processor_rmc(machine->board, true);
-    }
-  }
-  if (machine->pending_cycles > 0u) {
-    if (machine->board != NULL) {
-      ap_board_bus_ticks(machine->board, 1u);
-    }
-    machine->pending_cycles--;
-    if (machine->pending_cycles == 0u) {
-      if (machine->board != NULL && machine->pending_rmc) {
-        ap_board_set_processor_rmc(machine->board, false);
-        machine->pending_rmc = false;
-      }
-      /* The delivery is finished, so the devices advance -- the same point
-       * `ap_machine_run` advances them at, which is what makes the two loops
-       * the same machine rather than two schedules that happen to agree. */
-      machine_advance_devices(machine);
-    }
-  }
-  return out;
+   * So the two loops are not merely equal, they are the same code. The caller
+   * loses the ability to interpose *between* an instruction's cycles from
+   * outside -- and the cycles now happen at their true moments rather than
+   * being replayed afterwards, which is the thing the interposing was
+   * approximating. `pending_cycles`, `defer_cycle_delivery` and `pending_rmc`
+   * went with the schedule that needed them. */
+  return ap_machine_run(machine, 1u);
 }

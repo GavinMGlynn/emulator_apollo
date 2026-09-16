@@ -151,35 +151,7 @@ typedef struct {
    * happens rather than to the last instruction boundary. */
   uint64_t instruction_start_clocks;
 
-  /* ## Cycle stepping
-   *
-   * `pending_cycles` is what an instruction has left to hand out one at a time;
-   * `defer_cycle_delivery` makes `ap_machine_run` leave that delivery to the
-   * caller. Both are inert unless the tick entry point is used, so the
-   * instruction-stepped loop is byte-for-byte what it was. */
-  unsigned pending_cycles;
-  bool defer_cycle_delivery;
 
-  /* ## The bus arbitrated inside a cycle rather than between instructions
-   *
-   * `ap_m68030_bus.h` carries the design and why it is not the resumable
-   * sequencer the plan proposed. What lives here is the switch and its
-   * bookkeeping.
-   *
-   * With `cycle_bus` set, the processor calls `machine_bus_acquire` before each
-   * external cycle and `machine_bus_clock` for each of that cycle's clocks, so
-   * the board's bus advances and its devices run **between two cycles of one
-   * instruction**. Without it, the machine behaves exactly as it did: it stalls
-   * once before the instruction and replays the instruction's clocks against
-   * the bus afterwards.
-   *
-   * Kept as a switch rather than simply replacing the old path, because a state
-   * hash is only evidence when the same binary can produce both numbers. Every
-   * optimisation in this project was judged that way and this is a larger
-   * change than any of them. *It is not a permanent configuration knob*: the
-   * old path goes when the goldens have been re-blessed and the A/B is on the
-   * record. */
-  bool cycle_bus;
   /* **Processor clocks already ticked onto the board's bus and elapsed into
    * `now`** -- a machine-lifetime running total, not a per-instruction one.
    *
@@ -210,18 +182,6 @@ typedef struct {
    * nothing drove it until the bus was arbitrated inside the cycle, because the
    * board could only be told "this instruction held the bus". */
   ap_m68030_rmc_t cycle_rmc_asserted;
-  /* **And whether the instruction whose cycles are being handed out held the
-   * bus for an indivisible read-modify-write.**
-   *
-   * `ap_machine_run` asserts `RMC` to the board around its own clock walk --
-   * `[030]` §7.7.1 has the arbitration state machine ignore bus requests during
-   * one, and §11.9 says the processor "does not relinquish the physical bus
-   * while it is performing a read-modify-write operation". The tick path
-   * defers that walk and so skipped the assertion with it, which made a
-   * cycle-stepped machine grant the bus away inside a `TAS` where an
-   * instruction-stepped one would not. The lock has to span the drain, so the
-   * fact that it is needed has to survive the run that discovered it. */
-  bool pending_rmc;
 
   /* **Which of the two device schedules this machine runs.**
    *

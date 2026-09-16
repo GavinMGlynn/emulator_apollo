@@ -1868,13 +1868,18 @@ static void test_the_bus_is_arbitrated_inside_an_instruction_not_between_them(vo
   };
   enum { SETUP_INSTRUCTIONS = 5u };
 
-  uint64_t cost[2];
-  for (unsigned inside = 0; inside < 2u; inside++) {
+  /* **One schedule now, and the assertion is the surviving half.** This ran
+   * both and required them to differ -- the instruction-boundary schedule
+   * could not see the master at all, the cycle schedule stalls on it -- which
+   * is how the change was demonstrated. That schedule is gone, so what is left
+   * is the property itself: a master that becomes eligible mid-instruction
+   * takes the bus during it. */
+  uint64_t cost = 0u;
+  {
     static ap_machine_t machine;
     static ap_board_t board;
     build_board_machine(&machine, &board, ram, program,
                         sizeof program / sizeof program[0]);
-    machine.cycle_bus = (inside != 0u);
 
     ap_board_attach_master(&board, 0u, CHANNEL, DRQ);
     ap_i8237_write(&board.dma.controller[0], AP_I8237_REG_MODE,
@@ -1894,19 +1899,16 @@ static void test_the_bus_is_arbitrated_inside_an_instruction_not_between_them(vo
 
     const uint64_t before = machine.cpu.clocks;
     (void)ap_machine_run(&machine, 1u);
-    cost[inside] = machine.cpu.clocks - before;
+    cost = machine.cpu.clocks - before;
   }
 
-  /* Arbitrating between instructions cannot see the master at all: the whole
-   * store runs at its ordinary cost. */
+  /* The master wins between two of the store's writes and the processor waits,
+   * which is the behaviour the hardware has and this core did not have while
+   * the bus was arbitrated only at instruction boundaries. A store that ran at
+   * its ordinary cost -- tens of clocks, not thousands -- would mean the
+   * arbiter was never ticked inside the instruction. */
   TEST_ASSERT_TRUE_MESSAGE(
-      cost[0] < AP_MACHINE_STALL_LIMIT,
-      "with arbitration at the instruction boundary the store cannot stall");
-  /* Arbitrating inside the cycle does: the master wins between two of the
-   * store's writes and the processor waits, which is the behaviour the
-   * hardware has and this core did not. */
-  TEST_ASSERT_TRUE_MESSAGE(
-      cost[1] >= AP_MACHINE_STALL_LIMIT,
+      cost >= AP_MACHINE_STALL_LIMIT,
       "a master winning mid-instruction must stall the instruction it is in");
 }
 
@@ -3098,11 +3100,9 @@ static void test_the_tick_loop_and_the_run_loop_are_the_same_machine(void) {
     executed += out.executed;
   }
   TEST_ASSERT_EQUAL_UINT64(5u, executed);
-  /* And drain the last instruction's cycles, so both machines sit at the same
-   * point rather than one of them mid-delivery. */
-  while (ticked.pending_cycles > 0u && guard++ < 10000u) {
-    (void)ap_machine_tick(&ticked);
-  }
+  /* No drain: a tick is one instruction now, because the bus is arbitrated
+   * inside the cycle and the clocks reach the board when the processor spends
+   * them. There is nothing left mid-delivery to drain. */
 
   TEST_ASSERT_EQUAL_HEX32(stepped.cpu.regs.pc, ticked.cpu.regs.pc);
   TEST_ASSERT_EQUAL_UINT64(stepped.cpu.clocks, ticked.cpu.clocks);
@@ -3142,42 +3142,35 @@ static void test_the_tick_loop_matches_the_run_loop_on_a_real_board(void) {
   static ap_machine_t ticked;
   const uint64_t instructions = 100u;
 
-  /* **Both schedules, because they reach agreement by different routes.**
-   * On the instruction-boundary schedule the tick loop reconstructs the
-   * instruction's clocks from `clock_events` and hands them out one at a time,
-   * and agreeing with the run loop is a real property that took two defects to
-   * establish. On the cycle-bus schedule there is nothing to reconstruct -- the
-   * hooks delivered each clock as the processor spent it -- so `ap_machine_tick`
-   * *is* `ap_machine_run`, and the assertion is that nothing was delivered
-   * twice on the way. Running only the first would have missed the double
-   * delivery the second had; running only the second proves nothing about the
-   * first. */
-  for (unsigned cycle_bus = 0; cycle_bus < 2u; cycle_bus++) {
-    build_board_machine(&stepped, &first_board, ram, program, COUNT);
-    stepped.cycle_bus = (cycle_bus != 0u);
-    const ap_machine_run_t run = ap_machine_run(&stepped, instructions);
-    TEST_ASSERT_EQUAL_UINT64(instructions, run.executed);
+  /* **One schedule, and the two loops are now the same code.** This ran both
+   * and required them to agree: the instruction-boundary schedule's tick loop
+   * reconstructed an instruction's clocks from `clock_events` and handed them
+   * out one at a time, and agreeing with the run loop was a real property that
+   * took two defects to establish. The cycle schedule has nothing to
+   * reconstruct -- the hooks deliver each clock as the processor spends it --
+   * so `ap_machine_tick` *is* `ap_machine_run(.., 1)`.
+   *
+   * Kept rather than deleted with the schedule, because it is the check that
+   * caught the double delivery when the cycle path was first made the default,
+   * and it is the one that would catch the tick loop growing a second identity
+   * again. */
+  build_board_machine(&stepped, &first_board, ram, program, COUNT);
+  const ap_machine_run_t run = ap_machine_run(&stepped, instructions);
+  TEST_ASSERT_EQUAL_UINT64(instructions, run.executed);
 
-    build_board_machine(&ticked, &second_board, ram, program, COUNT);
-    ticked.cycle_bus = (cycle_bus != 0u);
-    uint64_t executed = 0u;
-    unsigned guard = 0u;
-    while (executed < instructions && guard++ < 1000000u) {
-      executed += ap_machine_tick(&ticked).executed;
-    }
-    TEST_ASSERT_EQUAL_UINT64(instructions, executed);
-    while (ticked.pending_cycles > 0u && guard++ < 1000000u) {
-      (void)ap_machine_tick(&ticked);
-    }
-
-    TEST_ASSERT_EQUAL_HEX32(stepped.cpu.regs.pc, ticked.cpu.regs.pc);
-    TEST_ASSERT_EQUAL_UINT64(stepped.cpu.clocks, ticked.cpu.clocks);
-    /* The board's own state too -- the divergence was an arbitration stall,
-     * which shows in the clocks and in the arbiter and nowhere in the
-     * registers. */
-    TEST_ASSERT_EQUAL_UINT64(ap_machine_hash(&stepped),
-                             ap_machine_hash(&ticked));
+  build_board_machine(&ticked, &second_board, ram, program, COUNT);
+  uint64_t executed = 0u;
+  unsigned guard = 0u;
+  while (executed < instructions && guard++ < 1000000u) {
+    executed += ap_machine_tick(&ticked).executed;
   }
+  TEST_ASSERT_EQUAL_UINT64(instructions, executed);
+
+  TEST_ASSERT_EQUAL_HEX32(stepped.cpu.regs.pc, ticked.cpu.regs.pc);
+  TEST_ASSERT_EQUAL_UINT64(stepped.cpu.clocks, ticked.cpu.clocks);
+  /* The board's own state too -- the divergence was an arbitration stall, which
+   * shows in the clocks and in the arbiter and nowhere in the registers. */
+  TEST_ASSERT_EQUAL_UINT64(ap_machine_hash(&stepped), ap_machine_hash(&ticked));
 }
 
 static void test_a_boardless_machine_advances_nothing(void) {

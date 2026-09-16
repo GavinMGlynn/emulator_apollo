@@ -26,9 +26,15 @@
 # ## The reference
 #
 #     executed     4462047 instruction(s)
-#     state hash   08591C51E9D4372F
-#     final PC     00002926 (boot PROM)
+#     state hash   D8B6F9244ACEF028
+#     final PC     0000292C (boot PROM)
 #     clocks       27925468
+#
+# As of 2026-09-16, when the legacy instruction-boundary schedule was deleted
+# and `pending_cycles` and `defer_cycle_delivery` went with it. **Coverage
+# only**: both were hashed, so removing them moves the digest and nothing else
+# -- every other line of the report, the clock count included, is byte-identical
+# to the run before. The previous reference was `08591C51E9D4372F`.
 #
 # As of 2026-09-16, when the bus became arbitrated inside each processor cycle.
 # The instruction count moved and the clock count barely did, which is what this
