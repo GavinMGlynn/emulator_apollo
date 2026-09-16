@@ -21441,6 +21441,41 @@ path assigns `out.clocks` from the data cycle, which silently overwrote the
 first version's addition, and the phase tests passed throughout because phases
 are not clocks. `ctest` 153/153 on both presets.*
 
+## The stored device cursors are six, not four, and the count is checked now
+## (2026-09-16)
+
+The exact-skip item carried a latent hazard: parts that date their deadlines
+from a stored `now` which only an advance refreshes, so a schedule that stopped
+advancing them every instruction would complete their next command early. It
+named **four** — the disk, tape, keyboard and graphics.
+
+**There are six.** `ap_scsi` and `ap_wd7000` arrived with the SCSI subsystem on
+2026-09-13, both the same shape — `bus->quiet_until = bus->now + ...`,
+`asc->diagnose_at = asc->now + ...` — after the count was written, and nothing
+noticed. *That is the real defect in the item*: the pattern grows one part at a
+time, silently, and every new device with a deadline adds another.
+
+**Census, checked by `doc_claims`: 6 stored `ap_time_t now;` cursors across
+`device/` and `board/`.** `check_provisional_census`' sibling, for the same
+reason and after the same failure: a count nothing checks is a count that drifts
+the moment someone adds a part. A seventh cannot now land in silence the way the
+sixth did.
+
+**Still not a live defect, and less of one than it was.** Every schedule this
+core has run advances all six at least once an instruction, and since the bus
+became arbitrated inside the cycle it advances them every *clock* — so a device
+is read at the instant of an advance at most one clock old, where it used to be
+one instruction. The hazard is entirely about a future schedule, and with
+exact-skip closed there is no such schedule coming. It stays open anyway,
+because it is fidelity rather than speed and because the fix is known: the
+access's instant reaching `ap_board_read`/`ap_board_write` at 120 call sites,
+not a part at a time — `graphics_status` reads the beam from the register-read
+path, which has no instant of its own, and all six are that shape. The PTM and
+the DUART were cured exactly this way and are the precedent.
+
+*Verification: `check_docs.py` proved to fail by adding a seventh cursor;
+`ctest` 153/153.*
+
 ## Exact-skip and its cross-node extension are closed, by measurement
 ## (2026-09-16)
 

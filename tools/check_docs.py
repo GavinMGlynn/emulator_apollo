@@ -726,6 +726,51 @@ def _rows_between(text: str, start: str, end: str) -> int:
     return max(len(rows) - 2, 0)
 
 
+# The stored-cursor census, its own line in the register.
+CURSOR_CENSUS = re.compile(
+    r"\*\*Census, checked by `doc_claims`:\s*(\d+)\s*stored `ap_time_t now;`\s*"
+    r"cursors across\s*`device/`\s*and\s*`board/`\.\*\*", re.MULTILINE)
+
+
+def check_cursor_census(problems: list[str]) -> int:
+    """A device that dates its deadlines from a cursor only an advance refreshes.
+
+    Six parts do. The plan item that carries the hazard said **four**, and was
+    right when it was written: `ap_scsi` and `ap_wd7000` arrived with the SCSI
+    subsystem months later, the same shape, and nothing noticed. The pattern
+    grows one part at a time and silently, which is the thing worth checking --
+    not the hazard itself, which is latent on every schedule this core runs.
+
+    So this counts the field and pins the number, exactly as the PROVISIONAL
+    census does and after the same kind of failure. A seventh cannot land
+    without the commit that adds it being refused until the register moves too.
+    """
+    if not STATUS.is_file():
+        return 0
+    match = CURSOR_CENSUS.search(STATUS.read_text())
+    if match is None:
+        problems.append(
+            "PROJECT_STATUS.md: the stored-cursor census line is missing or "
+            "reworded -- doc_claims cannot check it without it")
+        return 0
+    found = 0
+    for where in ("device", "board"):
+        directory = REPO / "src" / "core" / where
+        if not directory.is_dir():
+            continue
+        for path in sorted(directory.glob("*.h")):
+            found += path.read_text(encoding="utf-8",
+                                    errors="replace").count("ap_time_t now;")
+    claimed = int(match.group(1))
+    if claimed != found:
+        problems.append(
+            f"PROJECT_STATUS.md: the census says {claimed} stored cursors, the "
+            f"tree has {found} -- a part that dates deadlines from a stored "
+            "`now` was added or removed without its entry (see the plan item "
+            "on the stored device cursors)")
+    return 1
+
+
 def check_provisional_census(problems: list[str]) -> int:
     """A `PROVISIONAL` that lands in the source and in neither register.
 
@@ -825,6 +870,7 @@ def main() -> int:
     checked += check_walk_coverage(problems)
     checked += check_walk_page_counts(problems)
     checked += check_provisional_census(problems)
+    checked += check_cursor_census(problems)
 
     for problem in sorted(set(problems)):
         print(problem)

@@ -5008,23 +5008,38 @@ Only after the reference core is proven, and only under an identity harness.
       instruction whatever the ring is doing, and the inert-window argument the
       item was written on does not hold. *Reopens on contact*, with a
       re-derived premise, if a multi-node workload ever costs enough to want it.
-- [ ] **The four stored device cursors, carried out of the exact-skip item so
-      they are not closed with it.** The disk, tape, keyboard and graphics parts
-      date their deadlines from a stored `now` that only an advance refreshes
-      (`ap_omti.c`'s `completion_at = omti->now + duration`, and the same shape
-      in the other three). **Not a live defect** — every schedule this core has
-      ever run advances all four on a cadence at least as fine as an
-      instruction, and the cycle schedule made it finer still — but it is a
-      *fidelity* fragility rather than a performance one, which is why it
-      survives its parent: any future schedule that stops advancing a device
-      every instruction silently completes its next command early, as a
-      measured bisect once showed between 100 M and 200 M instructions.
+- [ ] **The stored device cursors — and there are SIX, not the four this item
+      inherited.** Carried out of the exact-skip item so they are not closed
+      with it: this is fidelity, not speed. Six parts date their deadlines from
+      a stored `now` that only an advance refreshes — `ap_omti`, `ap_kbd`,
+      `ap_graphics`, `ap_sc499`, and **`ap_scsi` and `ap_wd7000`, which arrived
+      with the SCSI subsystem on 2026-09-13, after the count was written, and
+      nothing noticed**. That is the real defect in this item: the pattern grows
+      silently, one part at a time, and the census below is what stops it.
+      **Not a live defect**, and the cycle schedule made it less so: every
+      schedule this core has run advances all six at least once an instruction,
+      and since 2026-09-16 it advances them every *clock*, so a device is read at
+      the instant of an advance at most one clock old. The hazard is that any
+      future schedule which stops doing so silently completes a device's next
+      command early, which a bisect once localised between 100 M and 200 M
+      instructions.
       **What closing it takes**: the access's instant reaching
-      `ap_board_read`/`ap_board_write`, which is 120 call sites, 114 of them in
-      tests — a single mechanical change, and one that **cannot be done a part
-      at a time**: the graphics cursor looked like pure residue and is not,
-      because `graphics_status` reads the beam from the register-read path,
-      which has no instant of its own. All four are that shape.
+      `ap_board_read`/`ap_board_write`, 120 call sites, 114 of them in tests —
+      one mechanical change, and **not a part at a time**: the graphics cursor
+      looked like pure residue and is not, because `graphics_status` reads the
+      beam from the register-read path, which has no instant of its own. All six
+      are that shape. The PTM and the DUART were cured exactly this way and are
+      the precedent.
+      **Awaiting:** nothing external — it is the 120-site change, and it is
+      deliberately not spent while no schedule needs it and the census below
+      guards the count. It stays open rather than closing because it is a
+      fidelity fragility, and because the one thing that *was* closable about it
+      — the silent growth — is now checked.
+  - [x] **The census is checked, 2026-09-16**, so a seventh cannot land in
+        silence the way the sixth did. `check_docs.py` counts `ap_time_t now;`
+        across `device/` and `board/` and fails when it disagrees with the
+        figure `PROJECT_STATUS.md` states. *Verification: proved to fail by
+        adding a cursor; `ctest` 153/153.*
 
 ## Phase 9 — Content testing
 
