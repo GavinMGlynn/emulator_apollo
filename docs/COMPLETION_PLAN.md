@@ -4657,6 +4657,20 @@ substance. They are the only items here with no route that is simply work.
       seen only to pass is not a check. `ctest` 153/153. Detail in
       `PROJECT_STATUS.md`.*
 
+- [x] **The walk records swept for recorded checks nobody performed.** The same
+      shape as the register drift, and the reason
+      `a-recorded-check-is-not-a-done-check` is in this project's memory. All 53
+      records swept for rows that name a check and stop; three found, and **all
+      three were already answered by work in the tree**: the ring type filter
+      (`RING.md` 133a -- `RING_$SET_TMASK` touches no register, so software
+      filtering is the AT generation's answer and `ap_ring_station` is correct),
+      `salvage_mode` reading 0 (an SR9/SR10 edition difference; `+CC` is
+      `.sys_shut_state`, 0 = dismounted), and the net ID daemon hang (software
+      configuration on the volume, not the `011200` PROM; the two-node boot runs
+      those daemons). Each correction keeps its original text beneath it.
+      *Verification: documentary; `ctest` 153/153, `check_docs` 5601. Detail in
+      `PROJECT_STATUS.md`.*
+
 - [x] **A finished console script can end its run.**
       `--boot-stop-on-script-end`. The disk image is written once, at exit, so
       a run that has finished its work cannot be killed without losing the

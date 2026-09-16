@@ -9312,6 +9312,39 @@ nowhere and no count could ever catch it.
 *Verification: documentary; no code changed. The enumeration is reproducible —
 `grep -rn PROVISIONAL src/ --include=*.h --include=*.c` against the two tables.*
 
+### The same sweep, run over the walk records: three recorded checks, none done
+
+The register drift is one shape of "a claim nobody re-ran". The walk records
+carry another, and `a-recorded-check-is-not-a-done-check` is in this project's
+memory because one of them cost the DS5500 its monitor for three weeks. Swept
+all 53 records for rows that *name* a check and do not perform it. Three, and
+**all three were already answered by work in the tree**:
+
+- **The ring type filter** (`002398-04_WALK.md`, PDF 213-214) said this core has
+  none and named it a plan item. `RING.md` 132/132b/133/133a answered it after
+  that row was written: `RING_$SET_TMASK` touches no controller register — it
+  stores the mask in a per-unit software block and advances an eventcount — and
+  ch. 12's register enumeration for the AT board carries no mask where the
+  DN3xx/DN5xx `9800` page has `TMASK` at `+04`. Type filtering on this
+  generation *is* software, so `ap_ring_station` accepting on
+  broadcast-or-destination is correct rather than incomplete.
+- **`salvage_mode` "always = 1" against volumes reading 0**
+  (`002398-03_WALK.md`) is an **edition difference**: `+CC` is `.salvage_mode`
+  in SR9 and `.sys_shut_state` in SR10, which `[EH3]` p. 2-20 enumerates as 0
+  dismounted / 1 mounted / 2 salvaged. `image/ap_volume.h` reads it under that
+  name, so 0 on a cleanly dismounted volume is right.
+- **The net ID trap** (`008860-A03_WALK.md`): a non-zero net ID hangs Domain/OS
+  at the daemons. A net ID is **not** the `011200` "NETWORK ID PROM", which
+  holds the node's own identifier; it is software configuration on the volume
+  and no register here carries it. The two-node boot reaches remote file access
+  and network paging, which runs those daemons, so the default holds. Recorded
+  as the *first* thing to check if a run ever stops there.
+
+*Each correction keeps its original text beneath it, because the claim as it
+stood is what explains why the code looks the way it does.*
+
+*Verification: documentary; no code changed; `ctest` 153/153, `check_docs` 5601.*
+
 ### And the class is checked now, which is what the 2026-08-22 entry wanted
 
 `check_docs.py`'s `check_provisional_census` reads the census line above and
